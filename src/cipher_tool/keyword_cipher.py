@@ -586,10 +586,19 @@ def describe_alphabet(alphabet: str, *, limit: int | None = 10) -> str:
 
 
 def _default_words(scorer: EnglishScorer) -> list[str]:
-    """Every dictionary word of a plausible keyword length, longest first.
+    """Every dictionary word of a plausible keyword length, SHORTEST first.
 
-    Longest first only so that when two words reduce to the same stem the
-    more informative one is the label we report.
+    Order decides the answer, because several words can reduce to the same
+    cipher alphabet and whichever is tried first becomes the label reported.
+    Repeated letters are dropped when a keyword alphabet is built, so
+    LIGHTHOUSE and LIGHTHOUSES both give LIGHTOUSE followed by the remaining
+    alphabet, and no ciphertext can tell them apart.
+
+    This ran longest first, on the reasoning that the longer word was "more
+    informative". It is not. It is a longer claim explaining exactly the same
+    evidence, and reporting keyword=LIGHTHOUSES for a message enciphered with
+    LIGHTHOUSE is simply wrong where the shorter answer would have been
+    right. Shortest first prefers the smallest claim that fits the evidence.
     """
     return sorted(
         (
@@ -597,7 +606,7 @@ def _default_words(scorer: EnglishScorer) -> list[str]:
             for word in scorer.lexicon
             if DEFAULT_MIN_KEYWORD <= len(word) <= DEFAULT_MAX_KEYWORD
         ),
-        key=lambda w: (-len(w), w),
+        key=lambda w: (len(w), w),
     )
 
 

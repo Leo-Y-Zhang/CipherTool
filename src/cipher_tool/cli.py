@@ -1095,6 +1095,65 @@ def read_pasted_ciphertext(prompt: str | None = None) -> str:
     return "\n".join(lines)
 
 
+#: How much of a plaintext must fall inside recognised words before the
+#: spaced version is worth showing. Below this the split invents word breaks
+#: that are not there, which makes a correct decryption look wrong.
+SEGMENTATION_THRESHOLD = 0.85
+
+
+def _segmentation_is_trustworthy(plaintext: str, scorer: Any) -> bool:
+    """True when putting the spaces back is likely to help rather than hurt.
+
+    Measured as the fraction of letters falling inside words the lexicon
+    actually holds. A plaintext full of vocabulary we do not have gets
+    chopped in the wrong places, and a wrong split misleads more than an
+    unbroken run of letters does -- the reader blames the decryption.
+    """
+    pieces = scorer.segment(plaintext)
+    if not pieces:
+        return False
+    total = sum(len(piece) for piece in pieces)
+    known = sum(len(piece) for piece in pieces if piece in scorer.lexicon)
+    return total > 0 and known / total >= SEGMENTATION_THRESHOLD
+
+
+def _wrap_words(text: str, width: int) -> list[str]:
+    """Wrap on spaces, never mid-word, so a copied line is never broken."""
+    lines: list[str] = []
+    current = ""
+    for word in text.split():
+        if not current:
+            current = word
+        elif len(current) + 1 + len(word) <= width:
+            current += " " + word
+        else:
+            lines.append(current)
+            current = word
+    if current:
+        lines.append(current)
+    return lines or [""]
+
+
+def render_submission(result: "auto_module.AutoResult") -> str:
+    """The answer alone, with nothing around it, ready to copy and submit.
+
+    Everything else the toolkit prints is there to help a person judge the
+    answer. This is the opposite: no headings, no evidence, no caveats, so
+    that select-all-copy picks up the plaintext and only the plaintext. The
+    caveats were shown when the answer was; repeating them inside the block
+    the user is about to paste into a form would be worse than useless.
+    """
+    best = result.candidates.best()
+    if best is None:
+        return ""
+    scorer = default_scorer()
+    if _segmentation_is_trustworthy(best.plaintext, scorer):
+        return scorer.segmented(best.plaintext) + "\n\n" + best.plaintext
+    # A split we cannot trust would be pasted into the answer box with word
+    # breaks in the wrong places, so give only the letters.
+    return best.plaintext
+
+
 def _render_answer(result: "auto_module.AutoResult", *, width: int = 60) -> str:
     """Show the best candidate as an answer a person can read and copy.
 
@@ -1135,14 +1194,33 @@ def _render_answer(result: "auto_module.AutoResult", *, width: int = 60) -> str:
     lines.append("=" * 72)
     lines.append("")
 
-    # Show the plaintext as one continuous run of letters, NOT poured back
-    # into the ciphertext's own spacing. Competition ciphertext comes in
-    # five-letter groups that have nothing to do with words, and reproducing
-    # them here gives "ISNOT HINGS", which looks like a bad decryption when
-    # it is a perfect one. Continuous letters are also what gets submitted.
+    # The plaintext is printed flush to the left margin, with no indent and
+    # no decoration, so that selecting it copies exactly the answer and
+    # nothing else. Two forms, because different places want different
+    # things and neither is worth retyping by hand.
+    #
+    # NOT poured back into the ciphertext's own five-letter grouping: those
+    # groups have nothing to do with words, and reproducing them gives
+    # "ISNOT HINGS", which reads like a bad decryption when it is a perfect
+    # one.
+    scorer = default_scorer()
     body = best.plaintext
+
+    # Only offer the spaced version when the split is trustworthy. Restoring
+    # spaces needs the words to be in our lexicon, and where they are not the
+    # result is worse than no spaces at all: a sentence whose vocabulary we
+    # lack segments as "AT AL TOCH AR ACTER", which reads like a failed
+    # decryption of a perfect one. Showing that above the real answer would
+    # undo the work.
+    if _segmentation_is_trustworthy(body, scorer):
+        lines.append("With the spaces put back (easiest to read and check):")
+        lines.append("")
+        lines.extend(_wrap_words(scorer.segmented(body), width))
+        lines.append("")
+        lines.append("As continuous letters, if the answer box wants none:")
+        lines.append("")
     for start in range(0, len(body), width):
-        lines.append("  " + body[start : start + width])
+        lines.append(body[start : start + width])
 
     lines.append("")
     lines.append("-" * 72)
@@ -1205,17 +1283,24 @@ def run_paste_session(args: argparse.Namespace) -> int:
     print(f"\n  Read {letters} letter{'' if letters == 1 else 's'}. "
           "Working...")
 
-    effort = "fast"
-    while True:
-        result = auto_module.auto_solve(
-            normalized, effort=effort, top=max(args.top, 5), seed=args.seed,
+    def search(level: str) -> "auto_module.AutoResult":
+        return auto_module.auto_solve(
+            normalized, effort=level, top=max(args.top, 5), seed=args.seed,
             max_time=args.max_time,
         )
-        print(_render_answer(result))
+
+    effort = "fast"
+    result = search(effort)
+    print(_render_answer(result))
+
+    # The search runs only when the user asks for a harder one. Re-solving
+    # on every keypress made copying the answer cost as long as finding it.
+    while True:
         print()
         print("-" * 72)
-        print("  [Enter] try harder      [a] all candidates      [w] why")
-        print("  [s] full command shell  [n] new message         [q] quit")
+        print("  [c] COPY-READY answer on its own   [f] save it to a file")
+        print("  [Enter] try harder   [a] all candidates   [w] why (stats)")
+        print("  [s] full command shell   [n] new message   [q] quit")
         try:
             choice = input("  > ").strip().lower()
         except (EOFError, KeyboardInterrupt):
@@ -1224,6 +1309,33 @@ def run_paste_session(args: argparse.Namespace) -> int:
 
         if choice in {"q", "quit", "exit"}:
             return 0
+        if choice in {"c", "copy"}:
+            block = render_submission(result)
+            if not block:
+                print("\n  There is no answer to copy.")
+                continue
+            # Printed bare, between rules, so a select-and-copy takes the
+            # plaintext and nothing else.
+            print()
+            print("v" * 72)
+            print(block)
+            print("^" * 72)
+            print("  Select between the rules and copy. Read it before you "
+                  "submit it.")
+            continue
+        if choice in {"f", "file", "save"}:
+            block = render_submission(result)
+            if not block:
+                print("\n  There is no answer to save.")
+                continue
+            target = Path("plaintext.txt")
+            try:
+                target.write_text(block + "\n", encoding="utf-8")
+            except OSError as error:
+                print(f"\n  Could not write {target}: {error}")
+                continue
+            print(f"\n  Saved to {target.resolve()}")
+            continue
         if choice in {"a", "all"}:
             print(render_candidates(result.candidates.ranked(), top=10,
                                     full_text=True, title="Every candidate"))
@@ -1249,6 +1361,10 @@ def run_paste_session(args: argparse.Namespace) -> int:
                   "[s] and then  crib THE")
             continue
         print(f"\n  Searching harder ({effort})... this takes longer.")
+        result = search(effort)
+        print(_render_answer(result))
+        continue
+
 
 
 def run_shell(args: argparse.Namespace) -> int:

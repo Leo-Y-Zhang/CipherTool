@@ -334,20 +334,22 @@ class TestKeywordRecovery(unittest.TestCase):
             candidate_keywords(SECRET_ALPHABET, minimum_tail=26, extend=0), []
         )
 
-    def test_documented_zebra_limitation(self) -> None:
-        """ZEBRA's A is swallowed by the ordered tail; both readings are valid.
+    def test_zebra_is_read_back_correctly(self) -> None:
+        """ZEBRA's A is swallowed by the ordered tail, so readings compete.
 
-        The module docstring promises this behaviour rather than hiding it,
-        so pin it down: the shortest reading wins, but ZEBR and ZEBRA are
-        still offered and all three rebuild the identical alphabet.
+        This test used to assert that the rotated reading "EBR start=B"
+        ranked first, and called it a documented limitation. It no longer
+        does: with a larger lexicon the recovery prefers a reading that is a
+        real English word, so ZEBRA comes back as ZEBRA. The alternatives are
+        still offered, because the ciphertext genuinely cannot tell them
+        apart, and every one of them must rebuild the identical alphabet.
         """
         alphabet = keyword_alphabet("ZEBRA")
         results = candidate_keywords(alphabet, limit=None)
-        self.assertEqual(results[0].keyword, "EBR")
-        self.assertEqual(results[0].start_letter, "B")
+        self.assertEqual(results[0].keyword, "ZEBRA")
         stems = {r.keyword for r in results}
         self.assertIn("ZEBR", stems)
-        self.assertIn("ZEBRA", stems)
+        self.assertIn("EBR", stems)
         for result in results:
             self.assertEqual(
                 keyword_alphabet(

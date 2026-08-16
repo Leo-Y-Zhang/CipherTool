@@ -65,7 +65,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Iterable, Sequence
 
-from .reference import COMMON_WORDS, IMPLAUSIBLE_DIGRAPHS
+from .reference import COMMON_WORDS, EXTENDED_WORDS, IMPLAUSIBLE_DIGRAPHS
 
 ALPHABET_SIZE = 26
 
@@ -296,14 +296,37 @@ class EnglishScorer:
         Both sources are inside this repository, so the whole lexicon is
         auditable and nothing was downloaded.
         """
-        words = set(COMMON_WORDS)
+        counts: dict[str, int] = {}
         for word in _words(corpus_text):
             if 1 <= len(word) <= MAX_WORD_LENGTH:
-                words.add(word)
+                counts[word] = counts.get(word, 0) + 1
+        # Hand-typed common words are, by construction, common. Give any that
+        # our prose happened not to use a modest baseline so that word
+        # segmentation still prefers them to rare corpus vocabulary.
+        # Hand-typed words are, by construction, ordinary English. Give any
+        # our prose happened not to use a baseline count so segmentation
+        # still prefers them to rare corpus vocabulary. The core list gets
+        # the higher floor because those really are the commonest words.
+        for word in EXTENDED_WORDS:
+            counts[word] = max(counts.get(word, 0), 2)
+        for word in COMMON_WORDS:
+            counts[word] = max(counts.get(word, 0), 6)
         # Single letters other than A and I are not English words and would
         # let coverage scoring accept anything at all.
-        words = {w for w in words if len(w) > 1 or w in {"A", "I"}}
-        return frozenset(words)
+        counts = {w: n for w, n in counts.items()
+                  if len(w) > 1 or w in {"A", "I"}}
+
+        total = sum(counts.values())
+        # log10 P(word), used by `segment`. A word seen once in the corpus is
+        # far less likely than THE, and this is what stops the split
+        # preferring one long rare word to two short common ones.
+        self._word_logp = {
+            word: math.log10(count / total) for word, count in counts.items()
+        }
+        #: What an unexplained letter costs. Set well below the rarest word so
+        #: that skipping text is always a last resort.
+        self._unknown_letter_cost = math.log10(0.5 / total) * 2.0
+        return frozenset(counts)
 
     @property
     def lexicon(self) -> frozenset[str]:
@@ -400,6 +423,96 @@ class EnglishScorer:
                         highest = value
             best[end] = highest
         return min(1.0, best[count] / count)
+
+    def segment(self, text: str) -> list[str]:
+        """Split a recovered plaintext back into words, as best we can.
+
+        A decryption comes out as one unbroken run of letters, because the
+        cipher destroyed the spaces. This puts them back by the same dynamic
+        programming used for :meth:`word_coverage`, choosing the split that
+        accounts for the most letters with known words.
+
+        This is a READABILITY AID AND A GUESS. The letters are what the
+        decryption actually produced; the spaces are this function's opinion.
+        It gets ``ATONE`` versus ``AT ONE`` wrong sometimes, and a stretch it
+        cannot account for is returned as one unbroken chunk rather than
+        chopped into plausible-looking nonsense. Anything shown to a user
+        must say which part is the decryption and which part is the guess.
+        """
+        letters = _letters(text)
+        count = len(letters)
+        if count == 0:
+            return []
+
+        logp = self._word_logp
+        # best[i] is the best total log10 probability for the first i
+        # characters, treating the plaintext as a run of independent words.
+        #
+        # Two earlier objectives were tried and are worth recording, because
+        # both look reasonable and both produce nonsense:
+        #
+        #   * maximise covered letters -- indifferent between one seven
+        #     letter word and seven one-letter ones, so NOTHINGSOFATAL came
+        #     out as "NO THINGS OF AT A L";
+        #   * maximise the square of each word's length -- now biased the
+        #     other way, preferring one long rare word to two short common
+        #     ones, so AREBUILT became "A REBUILT" and MEETMEAT "MEET MEAT".
+        #
+        # Word probability is the objective that actually models the
+        # question. ARE and BUILT are both common, REBUILT is rare, so
+        # "ARE BUILT" wins on the numbers rather than on a length rule.
+        best = [0.0] * (count + 1)
+        chosen = [0] * (count + 1)  # word length ending here, 0 = unexplained
+        for end in range(1, count + 1):
+            highest = best[end - 1] + self._unknown_letter_cost
+            pick = 0
+            for size in range(1, min(MAX_WORD_LENGTH, end) + 1):
+                probability = logp.get(letters[end - size : end])
+                if probability is not None:
+                    value = best[end - size] + probability
+                    if value > highest:
+                        highest, pick = value, size
+            best[end] = highest
+            chosen[end] = pick
+
+        # Walk back, gathering unexplained letters into single chunks so the
+        # output never implies a word division we did not actually find.
+        pieces: list[str] = []
+        unexplained: list[str] = []
+        position = count
+        while position > 0:
+            size = chosen[position]
+            if size == 0:
+                unexplained.append(letters[position - 1])
+                position -= 1
+                continue
+            if unexplained:
+                pieces.append("".join(reversed(unexplained)))
+                unexplained = []
+            pieces.append(letters[position - size : position])
+            position -= size
+        if unexplained:
+            pieces.append("".join(reversed(unexplained)))
+        pieces.reverse()
+
+        # A word our lexicon happens not to hold leaves its ending stranded:
+        # TASKS becomes TASK + S because only TASK is listed. Printing
+        # "TASK S" invents a word break that is certainly wrong, so a stray
+        # one or two letters is glued back onto its neighbour. Longer
+        # unexplained runs are left alone -- those are genuinely unrecognised
+        # text and pretending otherwise would hide it.
+        merged: list[str] = []
+        for piece in pieces:
+            stranded = len(piece) <= 2 and piece not in self._lexicon
+            if stranded and merged:
+                merged[-1] += piece
+            else:
+                merged.append(piece)
+        return merged
+
+    def segmented(self, text: str) -> str:
+        """:meth:`segment` joined with spaces, for display."""
+        return " ".join(self.segment(text))
 
     def find_words(self, text: str, minimum_length: int = 4) -> list[str]:
         """Known words of at least *minimum_length* appearing in *text*.
