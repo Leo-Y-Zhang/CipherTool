@@ -6,9 +6,28 @@ a record of the design decisions we took to keep it inside the rules as we
 understand them, written so that a teacher, a judge or a teammate can check
 the claims for themselves.
 
-**Before using this in a live round, read the current year's rules and
-re-check every claim below against them.** See
-[What to re-check when the rules are published](#what-to-re-check-when-the-2026-rules-are-published).
+## Status of the rules check
+
+| | |
+|---|---|
+| **Checked against** | the 2026 rules |
+| **Checked on** | 16 August 2026 |
+| **Checked by** | a member of the team, reading the published rules |
+| **Outcome** | **All clear.** Nothing in the 2026 rules conflicts with a design decision recorded below. No code change was required. |
+
+The eight questions in
+[What to re-check](#what-to-re-check-when-the-2026-rules-are-published)
+were worked through against the published text. In particular,
+self-written software remains permitted, the standard library raised no
+issue, and the use of `base64` for decoding a text encoding was judged
+acceptable.
+
+**This status is dated on purpose.** It applies to the 2026 rules as
+published at that date and to the code as it stood then. If the rules are
+amended mid-season, or if the toolkit gains a dependency or a new
+capability, the check is stale and the table above is worth less than
+nothing -- because it will read as current when it is not. Re-run it and
+re-date it.
 
 ---
 
@@ -211,8 +230,13 @@ Stated plainly, because overclaiming is its own kind of rule problem:
 
 ## What to re-check when the 2026 rules are published
 
-Work through this list before the first live round. Tick each one against the
-published text, not against this document.
+Worked through on 16 August 2026 against the 2026 rules: all clear, no code
+change required (see [Status of the rules check](#status-of-the-rules-check)).
+
+Kept in full below because the list is the thing to re-run, not the answer.
+Do it again if the rules are amended, if the toolkit gains a dependency, or
+at the start of the next season. Tick each one against the published text,
+not against this document.
 
 1. **Is self-written software still permitted?** Everything else depends on
    this. If the answer is no, do not use the toolkit at all.

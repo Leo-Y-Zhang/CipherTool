@@ -16,6 +16,10 @@ access of any kind. See [RULES_COMPLIANCE.md](RULES_COMPLIANCE.md).
 > depends on the current National Cipher Challenge rules. Verify the current
 > rules before using it in a live round.** Nobody at the competition has seen
 > or approved this software.
+>
+> Checked against the 2026 rules on 16 August 2026: all clear, no code change
+> required. That check is dated because it goes stale -- see
+> [RULES_COMPLIANCE.md](RULES_COMPLIANCE.md#status-of-the-rules-check).
 
 ---
 
