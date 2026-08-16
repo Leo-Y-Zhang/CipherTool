@@ -12,6 +12,21 @@ nothing to publish to.
 Add entries here as you work. Suggested headings: `Added`, `Changed`,
 `Fixed`, `Removed`.
 
+### Fixed
+
+- **A short substitution solve could be labelled `strong`.** The confidence
+  label reads the plaintext and nothing else, so it could not see that a
+  twenty-six letter key has more freedom than a twenty letter ciphertext has
+  evidence. Measured: `AHTLDSGAETSPNBLPFNPN` enciphers
+  `ERANDSHEWASGOINGTOGO`, the climber read it as `YFORMANYCOASTERSITST`, and
+  that fluent wrong sentence scored -0.850 per letter with 80 per cent word
+  coverage -- clearing both `strong` thresholds. The same candidate already
+  carried `short_text_warning` saying the answer meant little, so the
+  headline contradicted its own evidence. Solvers can now record a
+  `confidence_cap` in their diagnostics, and `substitution.solve` sets it to
+  `promising` below `RELIABLE_CLIMB_LETTERS`. Nothing above that length, and
+  no other solver, changes.
+
 ## [1.0.1] - 2026-08-16
 
 Findings from independent end-to-end verification and a read-the-code review,

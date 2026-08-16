@@ -688,6 +688,36 @@ class TestFailureModes(unittest.TestCase):
             best.diagnostics["restarts_run"],
         )
 
+    def test_a_short_climb_is_never_labelled_strong(self) -> None:
+        """Below RELIABLE_CLIMB_LETTERS the label must not say "clear English".
+
+        A general substitution key has twenty-six letters of freedom, so on a
+        couple of dozen letters the climber can bend the ciphertext into a
+        different English sentence entirely -- and both signals the confidence
+        label leans on are satisfied by that different sentence. Measured:
+
+            AHTLDSGAETSPNBLPFNPN  enciphers  ERANDSHEWASGOINGTOGO
+            the solver reads it as           YFORMANYCOASTERSITST
+            n-gram/letter -0.850, word coverage 0.80, label "strong"
+
+        The same candidate already carries short_text_warning saying the
+        answer means little. A headline of "strong" contradicts it, and the
+        headline is the part a hurried reader believes.
+        """
+        cases = (
+            "AHTLDSGAETSPNBLPFNPN",
+            "IXXISXHISMMCIDFLWFQH",
+            "QJDZKDPJKDGNRPQEEGWQTDIHJIPJ",
+            encrypt(PLAIN[:40], SAMPLE_KEY),
+        )
+        for ciphertext in cases:
+            with self.subTest(letters=len(ciphertext)):
+                best = solve(ciphertext, restarts=25, seed=5).best()
+                assert best is not None
+                self.assertLess(len(ciphertext), RELIABLE_CLIMB_LETTERS)
+                self.assertIn("short_text_warning", best.diagnostics)
+                self.assertNotEqual(best.confidence(), "strong")
+
     def test_a_wrong_crib_produces_a_wrong_answer_that_looks_wrong(self) -> None:
         # Force four cipher letters to plain letters they certainly are not.
         truth = SAMPLE_KEY

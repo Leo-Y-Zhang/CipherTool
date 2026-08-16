@@ -1178,6 +1178,14 @@ def solve(
             f"only {len(letters)} letters; a hill climb needs roughly "
             f"{RELIABLE_CLIMB_LETTERS} before its answer means much"
         )
+        # And weaken the headline to match the warning. A twenty-six letter
+        # key has more freedom than a short ciphertext has evidence, so the
+        # climber can land on a fluent English sentence that is not the
+        # plaintext -- AHTLDSGAETSPNBLPFNPN enciphers ERANDSHEWASGOINGTOGO
+        # and reads as YFORMANYCOASTERSITST, which scores -0.85 per letter
+        # with 80 per cent word coverage and so cleared both "strong"
+        # thresholds. The scorer cannot see that; this solver can.
+        summary["confidence_cap"] = "promising"
 
     for plain_indices, value in outcomes:
         key = SubstitutionKey(

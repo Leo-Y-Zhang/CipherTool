@@ -98,6 +98,14 @@ class Candidate:
         dictionary coverage. Requiring *both* signals to agree stops a text
         that merely has English-looking letter statistics (a near-miss key,
         for example) from being labelled ``strong``.
+
+        Both signals measure the *plaintext*, and neither knows how much
+        freedom the search had to manufacture it. A solver that does know --
+        because it can see it is working below the ciphertext length its
+        attack needs -- says so by putting a ``confidence_cap`` in the
+        diagnostics, and the label is weakened to it. Without that, a search
+        with more key freedom than ciphertext produces a fluent sentence that
+        satisfies both thresholds and is not the plaintext.
         """
         ngram = self.diagnostics.get("normalised_score", self.normalised_score)
         coverage = self.diagnostics.get("word_coverage")
@@ -107,18 +115,26 @@ class Candidate:
             # cap the label one notch below strong, because the n-gram model
             # alone cannot tell near-English from English.
             if ngram >= _PROMISING_NGRAM:
-                return "promising"
-            if ngram >= _WEAK_NGRAM:
-                return "weak"
-            return "unlikely"
+                label = "promising"
+            elif ngram >= _WEAK_NGRAM:
+                label = "weak"
+            else:
+                label = "unlikely"
+        elif ngram >= _STRONG_NGRAM and coverage >= _STRONG_COVERAGE:
+            label = "strong"
+        elif ngram >= _PROMISING_NGRAM and coverage >= _PROMISING_COVERAGE:
+            label = "promising"
+        elif ngram >= _WEAK_NGRAM:
+            label = "weak"
+        else:
+            label = "unlikely"
 
-        if ngram >= _STRONG_NGRAM and coverage >= _STRONG_COVERAGE:
-            return "strong"
-        if ngram >= _PROMISING_NGRAM and coverage >= _PROMISING_COVERAGE:
-            return "promising"
-        if ngram >= _WEAK_NGRAM:
-            return "weak"
-        return "unlikely"
+        cap = self.diagnostics.get("confidence_cap")
+        if cap in CONFIDENCE_ORDER:
+            # CONFIDENCE_ORDER runs strongest to weakest, so the larger index
+            # is the weaker label and that is the one to keep.
+            return max(label, cap, key=CONFIDENCE_ORDER.index)
+        return label
 
     def preview(self, width: int = 76) -> str:
         """First *width* characters of the plaintext, ellipsised."""

@@ -140,7 +140,7 @@ cipher_tool analyse message.txt
 python run_tests.py
 ```
 
-You should see roughly 1,159 tests pass in about two minutes.
+You should see roughly 1,160 tests pass in about two minutes.
 
 ---
 
