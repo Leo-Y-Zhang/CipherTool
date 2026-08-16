@@ -1,5 +1,10 @@
 # cipher_tool
 
+[![tests](https://github.com/Leo-Y-Zhang/CipherTool/actions/workflows/ci.yml/badge.svg)](https://github.com/Leo-Y-Zhang/CipherTool/actions/workflows/ci.yml)
+[![python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/downloads/)
+[![dependencies](https://img.shields.io/badge/dependencies-none-brightgreen)](pyproject.toml)
+[![licence](https://img.shields.io/badge/licence-MIT-lightgrey)](LICENSE)
+
 An offline classical cryptanalysis toolkit, written from scratch in pure
 Python for a school team entering the National Cipher Challenge.
 
@@ -92,7 +97,7 @@ cipher_tool analyse message.txt
 python run_tests.py
 ```
 
-You should see roughly 1,089 tests pass in about two minutes.
+You should see roughly 1,093 tests pass in about two minutes.
 
 ---
 
