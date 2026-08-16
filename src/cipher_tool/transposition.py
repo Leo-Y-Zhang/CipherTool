@@ -81,6 +81,34 @@ English model and ranks them. The diagnostics name every grid dimension and
 every route that was tested, because an exhaustive search is only exhaustive
 over what it actually looked at.
 
+How this attack fails, and how it says so
+-----------------------------------------
+A transposition has a characteristic false positive that a substitution does
+not. A route that is *nearly* right -- the correct read route on a grid one
+column too wide, say, or the transposed grid with a mirrored spiral -- does
+not produce noise. It produces the plaintext cut into blocks and put back in
+the wrong order, which contains real English words throughout, scores well
+under a letter model that only ever looks four letters ahead, and can earn the
+``strong`` confidence label while being wrong.
+
+So every candidate also reports ``worst_window_score``: the lowest per-letter
+score of any eight-letter window of the plaintext. Real English is uniformly
+readable, while block-shuffled English has one bad join per block boundary,
+and the joins are where the two come apart. MEASURED over 150 samples of 200
+to 600 letters drawn from all six corpus files, each paired with a
+block-shuffled version of itself (block sizes 8 to 30):
+
+    text                    worst 8-letter window, per letter
+    ------------------      min      median      max
+    real English            -1.372   -1.208      -1.089
+    block-shuffled          -2.120   -1.760      -1.346
+
+The medians are far apart and no sample crossed the other distribution -- but
+the extremes very nearly touch (-1.372 against -1.346), so this is evidence to
+weigh next to the plaintext, not a test to trust. It is reported and never
+used for ranking; the ranking stays with the English scorer, as it does in
+every other solver here.
+
 :func:`solve_all` is the family dispatcher used by ``cipher_tool
 transposition``: it runs the rail fence solver, the columnar solver and the
 route solver above, merges their candidates into one ranked set, and shares a
@@ -120,6 +148,11 @@ DEFAULT_MAX_SIDE = 40
 
 #: How many of the best-scoring combinations are turned into candidates.
 DEFAULT_REFINE = 40
+
+#: Window length for :func:`worst_window_score`. Eight letters is long enough
+#: to contain a bad join and its context, and short enough that one bad join
+#: is not averaged away by the good text either side of it.
+WINDOW = 8
 
 
 # ---------------------------------------------------------------------------
@@ -312,11 +345,19 @@ def _spiral_order(
 
     The walk is the obvious one and needs no arithmetic: keep going in the
     current direction while the next cell exists and has not been used; when
-    it does not, turn. A rectangle can never block the walk in more than one
-    direction at a time until it is full, so a single turn always suffices --
-    but the loop tries all four directions before giving up, because a
-    silently truncated route would produce a confidently wrong plaintext, and
-    the cost of the extra check is nothing.
+    it does not, turn.
+
+    Worth being precise about what actually decides the walk, because it is
+    not what the parameter names suggest. When a spiral is blocked, the cells
+    behind it are used and the perpendicular pointing away from the unvisited
+    region is either off the grid or used as well, so exactly one continuation
+    exists and the *sense* of the turn never has to be resolved. What
+    separates the eight spirals is therefore the direction each leaves its
+    corner in, which is what :data:`_SPIRAL_STARTS` lists. The turn table
+    records the intended sense, keeps the walk readable, and puts the right
+    direction first; the loop then tries all four before giving up, because a
+    silently truncated route would produce a confidently wrong plaintext and
+    the extra check costs nothing.
     """
     start_row = 0 if corner.startswith("top") else rows - 1
     start_col = 0 if corner.endswith("left") else cols - 1
@@ -678,6 +719,42 @@ def _grid_shape(grid: Grid) -> tuple[int, int]:
 # ---------------------------------------------------------------------------
 
 
+def worst_window_score(
+    text: str, scorer: EnglishScorer | None = None, window: int = WINDOW
+) -> float:
+    """Lowest per-letter English score of any *window*-letter run of *text*.
+
+    The point of a minimum rather than a mean: a transposition's near misses
+    are the plaintext reassembled in the wrong order, so they are English
+    almost everywhere and badly wrong at a handful of joins. Averaging hides
+    the joins, and the joins are the whole signal. See the module docstring
+    for the measured distributions and for why this is reported rather than
+    ranked on.
+
+    Each window is scored on its own, exactly as it was measured, so the first
+    three letters of a window are scored with the shortest contexts available.
+    That is a constant handicap applied to every window of every candidate,
+    which is what makes the numbers comparable.
+    """
+    engine = scorer if scorer is not None else default_scorer()
+    values = engine.encode(letters_only(text))
+    return _worst_window(values, engine, window)
+
+
+def _worst_window(
+    values: Sequence[int], scorer: EnglishScorer, window: int = WINDOW
+) -> float:
+    """Sliding-window minimum over an already-encoded plaintext."""
+    if not values:
+        return float("-inf")
+    if len(values) < window:
+        return scorer.score_values(values) / len(values)
+    return min(
+        scorer.score_values(values[start : start + window]) / window
+        for start in range(len(values) - window + 1)
+    )
+
+
 def _search_pairs(
     fills: Sequence[str], reads: Sequence[str], both_directions: bool
 ) -> list[tuple[str, str]]:
@@ -868,6 +945,9 @@ def solve(
             "read_route": read_name,
             "ragged_cells": rows * cols - length,
             "ciphertext_chi_squared": chi,
+            # Evidence against the family's characteristic false positive:
+            # English blocks reassembled in the wrong order. Never ranked on.
+            "worst_window_score": _worst_window(engine.encode(plaintext), engine),
         }
         annotate(diagnostics, plaintext, engine)
         results.add(
@@ -937,6 +1017,9 @@ def solve_all(
     which family each answer came from. Nothing is dropped on the grounds that
     another family scored better: the three attacks disagree often enough on
     short texts that hiding the runners-up would be hiding the uncertainty.
+    Every candidate records ``families_run``, which names each family with the
+    number of candidates it contributed, and ``families_skipped_no_time`` when
+    the budget ran out before a family was reached.
 
     Options
     -------
@@ -1017,7 +1100,11 @@ def solve_all(
         if share is not None:
             call_options["time_budget"] = share
         found = runner(normalized, scorer=engine, **call_options)
-        ran.append(label)
+        # Record what the family actually contributed, not merely that it was
+        # called. "columnar(0)" is real evidence: it says that search ran and
+        # came back with nothing, which is quite different from it being
+        # skipped, and different again from it being outranked.
+        ran.append(f"{label}({len(found)})")
         merged.extend(found.ranked())
         if any(c.diagnostics.get("time_budget_hit") for c in found.ranked()):
             budget_hit = True

@@ -315,12 +315,28 @@ class TestSolver(unittest.TestCase):
         self.assertEqual(best.diagnostics["ragged_columns"], 1)
 
     def test_greedy_search_for_a_long_key(self) -> None:
+        # DEFAULT_MAX_EXHAUSTIVE is 9, so a 9-column key is now enumerated;
+        # reaching the greedy path takes an explicit lower ceiling.
         ciphertext = encrypt(self.plaintext, "WATERFALL")
         best = solve(
-            ciphertext, scorer=self.scorer, top=3, key_length=9, seed=11
+            ciphertext, scorer=self.scorer, top=3, key_length=9, seed=11,
+            max_exhaustive=8,
         ).best()
         self.assertEqual(best.plaintext, self.plaintext)
         self.assertIn("greedy", best.diagnostics["search"])
+
+    def test_nine_columns_is_enumerated_by_default(self) -> None:
+        """The default must enumerate every key length it also tries.
+
+        Measured: at 9 columns exhaustive search found the true key on six
+        samples out of six and greedy on five, for 0.28s against 0.02s. The
+        accuracy is worth the quarter second, and the default says so.
+        """
+        ciphertext = encrypt(self.plaintext, "WATERFALL")
+        best = solve(ciphertext, scorer=self.scorer, top=3, key_length=9,
+                     seed=11).best()
+        self.assertEqual(best.plaintext, self.plaintext)
+        self.assertEqual(best.diagnostics["search"], "exhaustive")
 
     def test_seed_makes_the_greedy_search_reproducible(self) -> None:
         ciphertext = encrypt(self.plaintext, "WATERFALL")

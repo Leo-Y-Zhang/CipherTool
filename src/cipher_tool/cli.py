@@ -574,6 +574,8 @@ def command_columnar(args: argparse.Namespace) -> int:
     found = columnar.solve(normalized, top=args.top,
                            key_length=args.key_length,
                            max_key_length=args.max_key_length,
+                           complete=args.complete,
+                           max_exhaustive=args.max_exhaustive,
                            seed=args.seed, time_budget=args.max_time)
     show_candidates(found, args, "Columnar transposition")
     finish(args)
@@ -793,7 +795,11 @@ def command_crib(args: argparse.Namespace) -> int:
             "Give at least one crib, e.g. cipher_tool crib message.txt \"THE\""
         )
     reports = [
-        cribs.test_crib(text, word, methods=args.methods) for word in words
+        cribs.test_crib(text, word, methods=args.methods,
+                        key_length=args.key_length,
+                        no_fixed_points=args.no_fixed_points,
+                        limit=args.limit)
+        for word in words
     ]
     emit("\n\n".join(report.render() for report in reports), args)
     finish(args)
@@ -1172,8 +1178,16 @@ def build_parser() -> argparse.ArgumentParser:
     columnar_parser.add_argument("--key", metavar="KEYWORD")
     columnar_parser.add_argument("--key-length", type=int, metavar="N",
                                  dest="key_length")
-    columnar_parser.add_argument("--max-key-length", type=int, default=8,
+    columnar_parser.add_argument("--max-key-length", type=int,
+                                 default=columnar.DEFAULT_MAX_KEY_LENGTH,
                                  metavar="N", dest="max_key_length")
+    columnar_parser.add_argument("--max-exhaustive", type=int,
+                                 default=columnar.DEFAULT_MAX_EXHAUSTIVE,
+                                 metavar="N", dest="max_exhaustive",
+                                 help="enumerate every permutation up to this "
+                                      "key length; beyond it a weaker greedy "
+                                      "search is used (default "
+                                      f"{columnar.DEFAULT_MAX_EXHAUSTIVE})")
     columnar_parser.add_argument("--complete", action="store_true",
                                  help="assume a padded complete rectangle")
     columnar_parser.add_argument("--encrypt", action="store_true")
@@ -1243,6 +1257,18 @@ def build_parser() -> argparse.ArgumentParser:
     crib_parser.add_argument("--no-context", action="store_false",
                              dest="use_context",
                              help="ignore saved story context")
+    crib_parser.add_argument("--key-length", type=int, default=None,
+                             metavar="N", dest="key_length",
+                             help="known Vigenere key length; lets the crib "
+                                  "test build a partial key rather than just "
+                                  "listing fragments")
+    crib_parser.add_argument("--no-fixed-points", action="store_true",
+                             dest="no_fixed_points",
+                             help="assume no letter stands for itself. Most "
+                                  "substitutions DO have fixed points, so "
+                                  "only use this with independent evidence")
+    crib_parser.add_argument("--limit", type=int, default=12, metavar="N",
+                             help="most placements to list per method")
 
     context_parser = add("context", command_context,
                          "record the team's story notes for a ciphertext")

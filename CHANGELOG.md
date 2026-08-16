@@ -12,6 +12,72 @@ nothing to publish to.
 Add entries here as you work. Suggested headings: `Added`, `Changed`,
 `Fixed`, `Removed`.
 
+## [1.0.1] - 2026-08-16
+
+Findings from independent end-to-end verification and a read-the-code review,
+rather than from the unit tests -- which is the point worth remembering: every
+item below passed its own module's tests.
+
+### Fixed
+
+- **Substitution hill climber: stale window-score cache.** After an accepted
+  swap the cached per-window scores were not refreshed, so every later
+  comparison measured against stale numbers. Measured effect: the climber
+  reported a running score of +2,832,795 where the true score was -919, and
+  because every swap then looked like an improvement the search never
+  terminated. `tests/test_regressions.py` pins this three ways, including a
+  check that no single swap can improve on the returned key.
+- **`cipher_tool columnar --complete` was a silent no-op in search mode.**
+  The flag was only forwarded on the supplied-key path.
+- **CLI called three functions that do not exist**: a
+  `PolybiusSquare.from_keyword` classmethod (the factories are `standard`,
+  `without_q`, `six_by_six`, `adfgx`, `adfgvx`), `validate_ciphertext`
+  without its required square, and `describe_key_lengths` with a
+  `max_key_length` argument. Library tests all passed; only running the
+  commands found them.
+- **`beaufort --variant` was ignored when searching**, so asking for one
+  variant still searched both.
+- **`cribs.key_length_votes` counted every pair of offsets**, contradicting
+  `statistics.repeat_distances` and this project's own documented principle
+  that non-consecutive gaps double-count the same evidence. Now consecutive
+  gaps only.
+- **`CribReport.summary()` understated what it knew.** With a crib longer
+  than the ciphertext it said "nothing is ruled out" while the letter-count
+  test had already ruled transposition out.
+- **Morse line breaks folded to a letter gap**, so Morse transcribed one word
+  per line decoded with the words run together. A newline is now a word gap.
+- **`encodings` command ignored its own English-score ranking**, so
+  `72 69 76 76 79` was reported as hexadecimal (`rivvy`) above decimal ASCII
+  (`HELLO`).
+- **Bifid module docstring mis-described its own worked example**, naming the
+  wrong plaintext letters as the source of a ciphertext letter's
+  coordinates.
+- **`scoring.normalised` docstring quoted pre-calibration figures** (-2.2 and
+  -3.4) that the measurements had already superseded (-0.89 and -2.75).
+
+### Changed
+
+- `columnar.DEFAULT_MAX_EXHAUSTIVE` raised from 8 to 9 so it matches
+  `DEFAULT_MAX_KEY_LENGTH`: every key length the solver sweeps by default is
+  now enumerated in full. Measured on 181-letter texts with a 9-column key,
+  exhaustive search found the true key 6 times out of 6 in 0.28s while the
+  greedy fallback found it 5 times out of 6 -- and on a harder sample greedy
+  missed it entirely rather than ranking it low. The greedy docstring, which
+  called itself "usually close enough", was corrected to say so.
+- `--max-exhaustive` exposed on the columnar command.
+- `crib` gained `--key-length`, `--no-fixed-points` and `--limit`. Without a
+  key length the Vigenere crib test could never build a partial key, which is
+  the most useful thing it does.
+- Reporting now distinguishes **corroboration from ambiguity**. Two methods
+  producing the same plaintext is evidence, not a photo finish; `score_gap`
+  measures against the best *competing* reading and agreement is reported as
+  `CORROBORATION`. Previously a Caesar solve warned "the top two candidates
+  are within 0.000 per letter" when candidate two was the same plaintext
+  found via affine `a=1` -- which is the same cipher.
+- README limitations now carry measured numbers for Playfair (solve rate by
+  ciphertext length), Bifid with an unknown keyed square, and the fact that a
+  ciphertext-autokey primer is mathematically unrecoverable.
+
 ## [1.0.0] - 2026-08-16
 
 First complete version.

@@ -39,7 +39,7 @@ import unittest
 
 from cipher_tool import columnar, rail_fence, vigenere
 from cipher_tool.normalize import letters_only
-from cipher_tool.scoring import DATA_DIR, default_scorer
+from cipher_tool.scoring import DATA_DIR, corpus_files, default_scorer
 from cipher_tool.transposition import (
     FILL_ROUTES,
     METHOD,
@@ -52,6 +52,7 @@ from cipher_tool.transposition import (
     is_ragged,
     solve,
     solve_all,
+    worst_window_score,
 )
 
 CORPUS = (DATA_DIR / "corpus_04_expository.txt").read_text(encoding="utf-8")
@@ -103,6 +104,45 @@ class TestRoutesAreWellFormed(unittest.TestCase):
         }
         self.assertEqual(len(walks), 8)
 
+    def test_each_spiral_starts_at_its_corner_and_turns_its_way(self) -> None:
+        """The named corner and sense must be the ones actually walked.
+
+        Checked on the first two cells (which fix the corner and the direction
+        of travel) and on the outer ring (which must be finished before the
+        walk moves inwards). Those two together are what "clockwise spiral
+        from the top right" means; the rest of the walk follows.
+        """
+        rows, cols = 4, 5
+        expected_second = {
+            "spiral_cw_top_left": (0, 1),
+            "spiral_acw_top_left": (1, 0),
+            "spiral_cw_top_right": (1, cols - 1),
+            "spiral_acw_top_right": (0, cols - 2),
+            "spiral_cw_bottom_right": (rows - 1, cols - 2),
+            "spiral_acw_bottom_right": (rows - 2, cols - 1),
+            "spiral_cw_bottom_left": (rows - 2, 0),
+            "spiral_acw_bottom_left": (rows - 1, 1),
+        }
+        corners = {
+            "top_left": (0, 0),
+            "top_right": (0, cols - 1),
+            "bottom_right": (rows - 1, cols - 1),
+            "bottom_left": (rows - 1, 0),
+        }
+        ring = {
+            (row, col)
+            for row in range(rows)
+            for col in range(cols)
+            if row in (0, rows - 1) or col in (0, cols - 1)
+        }
+        for name, second in expected_second.items():
+            with self.subTest(route=name):
+                cells = ROUTES[name].cells(rows, cols)
+                corner = name.split("_", 2)[2]
+                self.assertEqual(cells[0], corners[corner])
+                self.assertEqual(cells[1], second)
+                self.assertEqual(set(cells[: len(ring)]), ring)
+
     def test_only_a_row_fill_is_declared_safe_on_a_ragged_grid(self) -> None:
         safe = [name for name in ROUTE_NAMES if ROUTES[name].ragged_safe]
         self.assertEqual(safe, ["rows"])
@@ -134,6 +174,12 @@ class TestKnownPairs(unittest.TestCase):
     def test_boustrophedon_read(self) -> None:
         self.assertEqual(
             encrypt(self.PLAIN, "boustrophedon_rows", 3, 4), "ATTATAKCDAWN"
+        )
+
+    def test_boustrophedon_column_read(self) -> None:
+        # col 0 down A C D, col 1 up A K T, col 2 down T A W, col 3 up N T A
+        self.assertEqual(
+            encrypt(self.PLAIN, "boustrophedon_columns", 3, 4), "ACDAKTTAWNTA"
         )
 
     def test_clockwise_spiral_from_the_top_left(self) -> None:
@@ -488,6 +534,79 @@ class TestFailureModes(unittest.TestCase):
             found.best().diagnostics["routes_tested"], "rows,columns,reverse"
         )
 
+    def test_block_shuffled_english_is_caught_by_the_window_score(self) -> None:
+        """The near miss that the letter model alone cannot see.
+
+        A route that is nearly right returns the plaintext in reordered
+        blocks: real words throughout, a good overall score, and one bad join
+        per block boundary. The overall per-letter score barely moves; the
+        worst eight-letter window does. Measured distributions are in the
+        module docstring -- the margin is real but not wide, which is why the
+        assertion below is on the gap and not on an absolute threshold.
+        """
+        for size in (10, 15, 22, 30):
+            with self.subTest(block=size):
+                blocks = [SAMPLE[i:i + size] for i in range(0, len(SAMPLE), size)]
+                shuffled = "".join(blocks[1::2] + blocks[0::2])
+                self.assertNotEqual(shuffled, SAMPLE)
+                # The overall score hardly notices: real words are intact.
+                self.assertGreater(scorer().normalised(shuffled), -1.2)
+                # The worst window does notice.
+                self.assertLess(
+                    worst_window_score(shuffled, scorer()),
+                    worst_window_score(SAMPLE, scorer()) - 0.2,
+                )
+
+    def test_the_window_score_is_reported_as_evidence_not_used_for_ranking(
+        self,
+    ) -> None:
+        cipher = encrypt(SAMPLE, "spiral_cw_top_left", cols=15)
+        found = solve(cipher, scorer=scorer(), top=5)
+        best = found.best()
+        self.assertEqual(best.plaintext, SAMPLE)
+        self.assertIn("worst_window_score", best.diagnostics)
+        # The ranking is the scorer's, unchanged: candidates come back in
+        # descending English score, whatever the window score says.
+        ranked = found.ranked()
+        self.assertEqual(
+            [candidate.score for candidate in ranked],
+            sorted((candidate.score for candidate in ranked), reverse=True),
+        )
+        self.assertAlmostEqual(
+            best.diagnostics["worst_window_score"],
+            worst_window_score(SAMPLE, scorer()),
+        )
+
+    def test_the_window_is_calibrated_to_the_documented_numbers(self) -> None:
+        """Pin the default window to the table in the module docstring.
+
+        The docstring quotes measured ranges for an eight-letter window, and
+        those numbers are only true for that window: three letters drags real
+        English down to about -1.8, twelve lifts it to about -1.0, and either
+        change would leave the documented calibration quietly wrong. The
+        bounds below sit outside the measured range of this fixed sample
+        (-1.270 to -1.165) and inside the ranges every other window produces.
+
+        Deterministic: fixed slices of the shipped corpus, no random choice.
+        Re-measure if the corpus files change.
+        """
+        samples = []
+        for path in corpus_files():
+            letters = letters_only(path.read_text(encoding="utf-8"))
+            for offset in (0, 1000, 2000):
+                if len(letters) >= offset + 330:
+                    samples.append(letters[offset:offset + 330])
+        self.assertGreaterEqual(len(samples), 12)
+        for index, text in enumerate(samples):
+            with self.subTest(sample=index):
+                worst = worst_window_score(text, scorer())
+                self.assertGreater(worst, -1.35)
+                self.assertLess(worst, -1.10)
+
+    def test_the_window_score_survives_short_and_empty_text(self) -> None:
+        self.assertEqual(worst_window_score("", scorer()), float("-inf"))
+        self.assertLess(worst_window_score("THE", scorer()), 0.0)
+
     def test_the_wrong_grid_shape_gives_junk_not_a_plausible_lie(self) -> None:
         """The right route on the wrong shape still scores clearly worse.
 
@@ -556,6 +675,49 @@ class TestDispatcher(unittest.TestCase):
             methods, {"Rail fence", "Columnar transposition", METHOD}
         )
         self.assertEqual(found.best().plaintext, SAMPLE)
+
+    def test_families_run_reports_the_real_contribution_of_each(self) -> None:
+        """The counts in ``families_run`` must add up to the merged set.
+
+        No family's candidates can collide with another's -- the candidate
+        set keys on (method, plaintext) and each family has its own method --
+        so with ``top=0``, which asks for everything, the merged size is
+        exactly the sum of the three counts. That pins the note to what
+        actually happened rather than to what was meant to happen.
+        """
+        found = solve_all(
+            encrypt(SAMPLE, "diagonals", cols=15), scorer=scorer(), top=0,
+            max_key_length=5, seed=1,
+        )
+        note = found.best().diagnostics["families_run"]
+        counts = [int(part.split("(")[1].rstrip(")")) for part in note.split(", ")]
+        self.assertEqual(len(counts), 3, note)
+        self.assertEqual(sum(counts), len(found), note)
+        self.assertTrue(all(count > 0 for count in counts), note)
+
+    def test_a_family_that_found_nothing_says_so(self) -> None:
+        """"Ran and found nothing" must not read the same as "was not run".
+
+        The side bounds here admit no grid at all for this length, so the
+        route search runs and legitimately returns nothing. The other two
+        families are unaffected, and the note has to show the zero.
+        """
+        found = solve_all(
+            encrypt(SAMPLE, "diagonals", cols=15), scorer=scorer(), top=0,
+            max_key_length=5, seed=1, min_side=39, max_side=40,
+        )
+        note = found.best().diagnostics["families_run"]
+        self.assertIn("route/grid(0)", note)
+        self.assertNotIn("families_skipped_no_time", found.best().diagnostics)
+        counts = [int(part.split("(")[1].rstrip(")")) for part in note.split(", ")]
+        self.assertEqual(sum(counts), len(found), note)
+        self.assertNotIn(
+            METHOD, {candidate.method for candidate in found.ranked()}
+        )
+
+    def test_a_budget_too_small_to_search_returns_nothing_not_junk(self) -> None:
+        found = solve_all(SAMPLE, scorer=scorer(), top=5, time_budget=1e-6)
+        self.assertEqual(len(found), 0)
 
     def test_a_time_budget_is_shared_and_reported(self) -> None:
         found = solve_all(

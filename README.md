@@ -358,9 +358,23 @@ Stated plainly, because a tool that hides its weaknesses wastes your time.
 - **Short texts defeat statistics.** Below roughly 100 letters, IC and
   chi-squared are noise. `analyse` says so and downgrades its own confidence,
   but it cannot fix it.
-- **Playfair hill climbing needs a lot of ciphertext**, roughly 200 letters
-  and comfortably more to be reliable. Below that it usually fails. The
-  solver reports the length so you can see whether the attack stood a chance.
+- **Playfair hill climbing is the weakest solver here, and needs a lot of
+  ciphertext.** Measured, five samples per length, eight restarts each:
+
+  | Ciphertext | Solved | Mean time |
+  |---|---|---|
+  | 300 letters | 1 / 5 | 19s |
+  | 500 letters | 1 / 5 | 26s |
+  | 800 letters | 5 / 5 | 8s |
+  | 1200 letters | 3 / 5 | 27s |
+  | 1800 letters | 3 / 5 | 29s |
+
+  Below about 800 letters treat a Playfair result as a lead, not an answer.
+  Even above it, expect to re-run with a different `--seed`. Raising
+  `--restarts` helps more than adding ciphertext does. In none of the 25
+  runs did a *wrong* answer come back labelled `strong`, which is the
+  property that matters most: it fails visibly rather than silently.
+
   Note also that a Playfair plaintext is never character-identical to the
   original: doubled letters were split with a filler during encryption, and
   decryption cannot tell an inserted `X` from a written one. Expect to read

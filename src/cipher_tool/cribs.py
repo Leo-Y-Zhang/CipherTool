@@ -676,6 +676,14 @@ def key_length_votes(
     key, and the key is identical again only after a whole number of periods --
     so L divides d. Each divisor of each spacing gets one vote.
 
+    Only gaps between CONSECUTIVE occurrences are counted, matching
+    :func:`statistics.repeat_distances`. Every gap between a non-adjacent
+    pair is a sum of consecutive gaps, so counting all pairs would count the
+    same evidence more than once and would inflate a fragment that happens to
+    appear three or four times far beyond what it is worth. The toolkit
+    asserts that principle in ``statistics.py`` and in ALGORITHMS.md, so this
+    function has to follow it too.
+
     A vote is a hint, not a measurement. Short repeats happen by chance, and
     1 is a divisor of everything, so it is excluded along with anything longer
     than *maximum*. For serious key-length work use
@@ -684,11 +692,11 @@ def key_length_votes(
     """
     votes: Counter = Counter()
     for positions in repeated_fragments(placements).values():
-        for index, first in enumerate(positions):
-            for second in positions[index + 1:]:
-                for divisor in divisors(second - first):
-                    if 2 <= divisor <= maximum:
-                        votes[divisor] += 1
+        ordered = sorted(positions)
+        for first, second in zip(ordered, ordered[1:]):
+            for divisor in divisors(second - first):
+                if 2 <= divisor <= maximum:
+                    votes[divisor] += 1
     return votes
 
 
@@ -1018,11 +1026,23 @@ class CribReport:
     def summary(self) -> str:
         """One line naming the families still standing after these tests."""
         if self.offsets_tested == 0:
-            return (
+            # No offset fits, so no PLACEMENT test could run. The letter-count
+            # test is not a placement test though: it compares multisets, and
+            # it can still rule transposition out even here. Saying "nothing
+            # is ruled out" while holding that result would be understating
+            # what we know.
+            message = (
                 f"The crib is {len(self.crib)} letters and the ciphertext is "
-                f"{len(self.letters)}, so it does not fit at all. Nothing was "
-                "tested and nothing is ruled out."
+                f"{len(self.letters)}, so it does not fit at all. No "
+                "placement could be tested."
             )
+            if self.transposition is not None and not self.transposition.possible:
+                return (
+                    message
+                    + " Transposition is still RULED OUT: the ciphertext does "
+                    "not contain the letters the crib needs."
+                )
+            return message + " Nothing is ruled out."
         alive = self.possible_methods()
         if not alive:
             return (

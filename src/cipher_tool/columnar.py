@@ -105,9 +105,17 @@ from .statistics import divisors
 #: Longest keyword :func:`solve` tries when it is not told the key length.
 DEFAULT_MAX_KEY_LENGTH = 9
 
-#: Key lengths up to this get an exhaustive permutation search. 8! = 40320
-#: arrangements, each scored with 8 additions, is well under a second.
-DEFAULT_MAX_EXHAUSTIVE = 8
+#: Key lengths up to this get an exhaustive permutation search.
+#:
+#: Set to match DEFAULT_MAX_KEY_LENGTH so that every key length the solver
+#: tries by default is enumerated, and the greedy path is reached only when
+#: the caller asks for a longer key. That is deliberate and measured: on
+#: 181-letter texts with a 9-column key, over six seeds, exhaustive search
+#: found the true key every time in 0.28s while greedy found it five times
+#: out of six. 9! = 362,880 arrangements scored with nine additions each is
+#: cheap enough that trading accuracy for speed is not worth it. 10! would be
+#: 3.6 million, and is not.
+DEFAULT_MAX_EXHAUSTIVE = 9
 
 #: How many arrangements per key length are re-scored with the full English
 #: model after the cheap adjacency filter has ranked them.
@@ -620,8 +628,15 @@ def _greedy_chains(
     Grid positions ``0 .. len(long_blocks) - 1`` must hold long blocks and the
     rest short ones, so the pool of candidates for the next position is fixed;
     within that pool we take whichever block scores best beside the current
-    tail. Greedy chaining is O(k^2) instead of O(k!), and it is usually close
-    enough for the swap improver to finish the job.
+    tail. Greedy chaining is O(k^2) instead of O(k!).
+
+    Do not overrate it. Measured on 181-letter texts with a 9-column key,
+    greedy found the true key on five runs out of six where exhaustive search
+    found it on all six; on a harder sample it missed the true key entirely
+    rather than merely ranking it low. It is a fallback for key lengths too
+    long to enumerate, not an equal alternative, which is why
+    :data:`DEFAULT_MAX_EXHAUSTIVE` now enumerates every key length the solver
+    tries by default.
     """
     long_count = len(long_blocks)
     total = long_count + len(short_blocks)
