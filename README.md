@@ -14,9 +14,91 @@ access of any kind. See [RULES_COMPLIANCE.md](RULES_COMPLIANCE.md).
 
 ---
 
+# Getting it running on a new laptop
+
+Three steps. There is nothing to install and no dependencies to fetch.
+
+### Step 1 -- get Python (once per computer)
+
+Check whether you already have it. Open a terminal and type:
+
+```
+python --version
+```
+
+If it prints `3.10` or higher, skip to step 2. If it says "not found" or
+prints an older version, install it from
+**<https://www.python.org/downloads/>**.
+
+> **Windows users:** on the very first installer screen, tick
+> **"Add python.exe to PATH"** before clicking Install. If you miss it, the
+> launcher will not find Python and you will have to run the installer again.
+
+### Step 2 -- download this repository
+
+Either download the ZIP from the green **Code** button on GitHub and unzip
+it, or, if you have git:
+
+```
+git clone https://github.com/Leo-Y-Zhang/CipherTool.git
+```
+
+### Step 3 -- double-click the launcher
+
+| Your computer | Double-click this file |
+|---|---|
+| **Windows** | `cipher_tool.bat` |
+| **Mac** | `cipher_tool.command` |
+| **Linux** | `cipher_tool.sh` |
+
+That opens the interactive shell. Then type:
+
+```
+load message.txt          (the path to your ciphertext file)
+analyse                   what does it look like?
+auto fast                 try everything cheap
+help                      every command
+quit                      leave
+```
+
+**On a Mac**, the very first time, macOS will refuse to open a downloaded
+script. Right-click `cipher_tool.command`, choose **Open**, then click
+**Open** in the dialog. After that, double-clicking works normally. If Finder
+says it is not executable, run this once in Terminal:
+
+```
+chmod +x cipher_tool.command
+```
+
+The launcher also takes commands directly, if you prefer a terminal:
+
+```
+cipher_tool.bat analyse message.txt          (Windows)
+./cipher_tool.command analyse message.txt    (Mac)
+```
+
+### Optional -- install it as a proper command
+
+Only if you want to type `cipher_tool` from anywhere:
+
+```
+python -m pip install -e .
+cipher_tool analyse message.txt
+```
+
+### Check it works
+
+```
+python run_tests.py
+```
+
+You should see roughly 1,089 tests pass in about two minutes.
+
+---
+
 ## Contents
 
-- [Install](#install)
+- [Getting it running on a new laptop](#getting-it-running-on-a-new-laptop)
 - [Five-minute tour](#five-minute-tour)
 - [The competition workflow](#the-competition-workflow)
 - [Commands](#commands)
@@ -29,28 +111,6 @@ access of any kind. See [RULES_COMPLIANCE.md](RULES_COMPLIANCE.md).
 - [Project layout](#project-layout)
 
 ---
-
-## Install
-
-Python 3.10 or newer. Nothing else.
-
-```bash
-git clone <this repository>
-cd CipherTool
-python -m pip install -e .          # optional -- gives you the cipher_tool command
-```
-
-You do not have to install it. From the repository root:
-
-```bash
-python -m cipher_tool analyse message.txt
-```
-
-works immediately, as does `PYTHONPATH=src python -m cipher_tool ...` from
-anywhere.
-
-The rest of this document writes `cipher_tool` for brevity; substitute
-`python -m cipher_tool` if you did not install.
 
 ## Five-minute tour
 
@@ -438,12 +498,17 @@ path reaches the network.
 
 ```
 CipherTool/
+    cipher_tool.bat           double-click launcher, Windows
+    cipher_tool.command       double-click launcher, Mac
+    cipher_tool.sh            launcher, Linux
     README.md                 this file
     RULES_COMPLIANCE.md       the competition audit, and what to re-check
     ALGORITHMS.md             the mathematics
     CHANGELOG.md              our development record
+    LICENSE                   MIT
     pyproject.toml            no runtime dependencies, deliberately
     run_tests.py              stdlib-only test runner
+    .github/workflows/ci.yml  tests on Windows, Mac and Linux on every push
     src/cipher_tool/
         cli.py                the command line and interactive shell
         auto.py               the cross-solver pipeline

@@ -1,0 +1,84 @@
+name: tests
+
+# Proves two things on every push: the toolkit works on a machine that is
+# not the one it was written on, and it still installs with no dependencies.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.10", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      # No `pip install` step anywhere in this job, deliberately. The
+      # toolkit has no dependencies and the test suite runs on the standard
+      # library alone. If that ever stops being true, this job fails.
+      - name: Run the test suite (standard library only)
+        run: python run_tests.py
+
+      - name: Competition compliance audit
+        run: python run_tests.py test_compliance -v
+
+      - name: Smoke test the command line
+        shell: bash
+        run: |
+          export PYTHONPATH=src
+          python -m cipher_tool --version
+          python -m cipher_tool model
+          printf 'WKHUH LVQRW KLQJV RIDWD OWRFK DUDFW HUDVK DOIIL QLVKH GWDVN\n' > message.txt
+          python -m cipher_tool analyse message.txt
+          python -m cipher_tool auto message.txt --fast --top 3 | tee out.txt
+          grep -q "THEREISNOTHINGSOFATAL" out.txt \
+            || { echo "the pipeline failed to solve a plain Caesar"; exit 1; }
+
+  packaging:
+    name: installs cleanly with no dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install the package
+        run: python -m pip install .
+
+      - name: The console script works from a different directory
+        run: |
+          cd "$(mktemp -d)"
+          cipher_tool --version
+          cipher_tool caesar --text "WKHUHLVQRWKLQJVRIDWDO" --shift 3 --quiet
+
+      - name: Nothing third-party was pulled in
+        run: |
+          python - <<'PY'
+          import subprocess, sys, json
+          frozen = subprocess.run(
+              [sys.executable, "-m", "pip", "list", "--format=json"],
+              capture_output=True, text=True, check=True).stdout
+          installed = {p["name"].lower() for p in json.loads(frozen)}
+          # Whatever the runner image ships with, plus our own package.
+          allowed = {"cipher-tool", "pip", "setuptools", "wheel", "packaging"}
+          extra = installed - allowed
+          if extra:
+              sys.exit(f"unexpected packages installed: {sorted(extra)}")
+          print("clean:", sorted(installed))
+          PY
