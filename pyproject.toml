@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cipher-tool"
+version = "1.0.0"
+description = "Offline classical cryptanalysis toolkit, written from scratch for the National Cipher Challenge."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+
+# ---------------------------------------------------------------------------
+# DEPENDENCIES: intentionally empty.
+#
+# This toolkit uses the Python standard library and nothing else. No third
+# party cryptography, cryptanalysis, numerical or networking package is
+# installed. See RULES_COMPLIANCE.md for why.
+# ---------------------------------------------------------------------------
+dependencies = []
+
+[project.optional-dependencies]
+# Test runner only. Not required to run the toolkit, and it contains no
+# cryptanalysis functionality. The test suite also runs under stdlib
+# `unittest`, so even this is optional: see tests/README.md.
+dev = ["pytest>=7"]
+
+[project.scripts]
+cipher_tool = "cipher_tool.cli:main"
+cipher-tool = "cipher_tool.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+cipher_tool = ["data/*.txt"]
