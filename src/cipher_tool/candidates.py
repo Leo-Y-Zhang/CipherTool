@@ -137,10 +137,33 @@ class CandidateSet:
     while still recording how many restarts agreed (useful evidence).
     """
 
-    def __init__(self, candidates: Iterable[Candidate] = ()) -> None:
+    def __init__(
+        self,
+        candidates: Iterable[Candidate] = (),
+        *,
+        source_letters: str | None = None,
+    ) -> None:
+        #: The ciphertext these candidates came from, letters only, when the
+        #: caller knows it. Used to spot candidates that did not actually
+        #: decrypt anything -- see :meth:`identity_candidates`.
+        self.source_letters = source_letters
         self._items: list[Candidate] = []
         self._index: dict[tuple[str, str], Candidate] = {}
         self.extend(candidates)
+
+    def is_identity(self, candidate: Candidate) -> bool:
+        """True if this candidate's "decryption" returned the input unchanged.
+
+        Every cipher family here contains a key that does nothing: Caesar
+        shift 0, affine a=1 b=0, Vigenere key AAA, Beaufort key A, Bifid
+        period 1, the identity substitution alphabet. Handed plaintext, every
+        solver finds its own identity key and scores it highly -- correctly,
+        because the text really is English. What would be wrong is presenting
+        that as a decryption, or counting several of them as agreeing.
+        """
+        if self.source_letters is None:
+            return False
+        return candidate.plaintext == self.source_letters
 
     # -- container protocol ------------------------------------------------
 
@@ -237,16 +260,43 @@ class CandidateSet:
 
         Two unrelated attacks arriving at the same text is strong evidence,
         and worth saying out loud rather than burying as a near-tie.
+
+        Identity results are excluded, and this matters. Given text that was
+        never encrypted, every solver finds its own do-nothing key -- Caesar
+        shift 0, Vigenere key AAA, affine a=1 b=0 -- and all of them return
+        the input unchanged. Counting those as agreement would announce that
+        several independent attacks corroborate each other when in truth none
+        of them decrypted anything. That is the most misleading thing this
+        toolkit could say, so it does not say it.
         """
         ranked = self.ranked()
         if not ranked:
             return []
-        best = ranked[0].plaintext
+        best = ranked[0]
+        if self.is_identity(best):
+            return []
         methods: list[str] = []
         for candidate in ranked:
-            if candidate.plaintext == best and candidate.method not in methods:
+            if candidate.plaintext != best.plaintext:
+                continue
+            if self.is_identity(candidate):
+                continue
+            if candidate.method not in methods:
                 methods.append(candidate.method)
         return methods
+
+    def identity_candidates(self) -> list[Candidate]:
+        """Candidates whose key did nothing, leaving the input unchanged."""
+        return [c for c in self._items if self.is_identity(c)]
+
+    def looks_unencrypted(self) -> bool:
+        """True when the best candidate simply handed the input back.
+
+        The honest reading is not "solved with key AAA" but "this text does
+        not appear to be encrypted at all".
+        """
+        best = self.best()
+        return best is not None and self.is_identity(best)
 
 
 # ---------------------------------------------------------------------------

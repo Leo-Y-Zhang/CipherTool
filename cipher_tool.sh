@@ -53,20 +53,10 @@ if [ "$#" -gt 0 ]; then
     exec "$PY" -m cipher_tool "$@"
 fi
 
-cat <<'BANNER'
-
-  cipher_tool -- offline cryptanalysis toolkit
-  -------------------------------------------
-  Type 'help' for commands, or 'quit' to leave.
-
-  Quick start:
-    load /path/to/message.txt
-    analyse
-    auto fast
-
-BANNER
-
-"$PY" -m cipher_tool shell
+# Default to the paste-and-solve flow. It is what someone wants in the
+# first thirty seconds, and unlike the command shell it copes with a
+# ciphertext pasted across several lines.
+"$PY" -m cipher_tool paste
 
 echo
 [ -t 0 ] && read -r -p "Press Return to close. " _

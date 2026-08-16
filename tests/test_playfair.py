@@ -10,9 +10,11 @@ import unittest
 
 from cipher_tool.playfair import (
     DEFAULT_ITERATIONS,
+    STANDARD_OMISSIONS,
     PlayfairSquare,
     as_square,
     canonical_square,
+    check_filler,
     decrypt,
     encrypt,
     plain_square,
@@ -442,7 +444,12 @@ class TestInvalidInput(unittest.TestCase):
     def test_solve_rejects_impossible_ciphertext(self) -> None:
         message = self.assertRaisesWithMessage(solve, "ABCDE")
         self.assertIn("odd number", message)
-        message = self.assertRaisesWithMessage(solve, "ABJC")
+        # A J in the ciphertext used to make the keyless search raise as well.
+        # It no longer does -- the J says which letter the square omitted, and
+        # the search reads it (see TestSolveChoosesTheOmittedLetter). It is
+        # still an error against a square the CALLER asserted, because then it
+        # contradicts a statement rather than answering an open question.
+        message = self.assertRaisesWithMessage(solve, "ABJC", key=MONARCHY)
         self.assertIn("J", message)
 
 
@@ -586,6 +593,199 @@ class TestSolveByAnnealing(unittest.TestCase):
         first = solve(cipher, seed=1, restarts=1, iterations=3000).best()
         second = solve(cipher, seed=2, restarts=1, iterations=3000).best()
         self.assertNotEqual(first.key, second.key)
+
+
+class TestSolveChoosesTheOmittedLetter(unittest.TestCase):
+    """A J in the ciphertext is evidence about the square, not bad input.
+
+    `cipher_tool playfair message.txt` used to end in a raw ValueError
+    traceback for any ciphertext containing a J, because solve() refused to
+    start unless the caller had already guessed the right omit= argument --
+    an argument the command line does not even expose. A J proves the square
+    did not merge I/J, so the keyless search now reads that and moves to the
+    other standard omission, recording the swap on every candidate.
+    """
+
+    def q_square_ciphertext(self, count: int = 320) -> tuple[str, str]:
+        """Ciphertext from a Q-dropping square, so it contains real Js."""
+        plain = corpus_letters(count)
+        square = playfair_square("CIPHERCHALLENGE", omit="Q")
+        cipher = encrypt(plain, square, alternative="Z")
+        self.assertIn("J", cipher, "this test needs a J in the ciphertext")
+        expected = prepare_text(plain, square=square, alternative="Z")
+        return cipher, expected
+
+    def test_a_j_does_not_stop_the_keyless_search(self) -> None:
+        cipher, _ = self.q_square_ciphertext()
+        found = solve(cipher, seed=1, restarts=1, iterations=2000)
+        self.assertGreater(len(found), 0)
+        best = found.best()
+        self.assertEqual(best.diagnostics["omitted_letter"], "Q")
+
+    def test_the_swap_is_recorded_where_the_operator_will_read_it(self) -> None:
+        cipher, _ = self.q_square_ciphertext()
+        best = solve(cipher, seed=1, restarts=1, iterations=2000).best()
+        note = best.diagnostics["omitted_letter_changed"]
+        # It must say what it found, what it did about it, and that the
+        # decision could still be wrong.
+        self.assertIn("contains J", note)
+        self.assertIn("drops Q", note)
+        self.assertIn("not Playfair", note)
+
+    def test_the_swap_lets_the_message_actually_be_read(self) -> None:
+        # The point of the swap: this ciphertext is solvable, and refusing to
+        # start meant nobody ever found that out.
+        cipher, expected = self.q_square_ciphertext()
+        best = solve(cipher, seed=1, restarts=3).best()
+        self.assertEqual(best.plaintext, expected)
+        self.assertEqual(best.confidence(), "strong")
+
+    def test_ordinary_ciphertext_keeps_the_classic_merge(self) -> None:
+        cipher = encrypt(corpus_letters(120), "CIPHERCHALLENGE")
+        self.assertNotIn("J", cipher)
+        best = solve(cipher, seed=1, restarts=1, iterations=2000).best()
+        self.assertEqual(best.diagnostics["omitted_letter"], "J")
+        self.assertNotIn("omitted_letter_changed", best.diagnostics)
+
+    def test_a_supplied_key_is_not_quietly_re_keyed(self) -> None:
+        # The operator has asserted a square. Contradicting evidence is worth
+        # reporting; silently searching a different square is not.
+        message = self.assertRaisesMessage(solve, "ABJDEFGH", key=MONARCHY)
+        self.assertIn("merges I/J", message)
+
+    def test_a_text_using_every_standard_omission_is_still_refused(self) -> None:
+        # J and Q both present: no standard square can have produced this, and
+        # inventing a third omission to search with would be manufacturing
+        # evidence. Refusing, with the reason, is the honest answer.
+        message = self.assertRaisesMessage(solve, "ABJQCDEF")
+        for letter in STANDARD_OMISSIONS:
+            self.assertIn(repr(letter), message)
+        self.assertIn("not Playfair ciphertext", message)
+
+    def assertRaisesMessage(self, call, *args, **kwargs) -> str:
+        with self.assertRaises(ValueError) as caught:
+            call(*args, **kwargs)
+        return str(caught.exception)
+
+
+class TestFillerValidation(unittest.TestCase):
+    """A filler is either rejected or effective; it is never just ignored."""
+
+    BAD_FILLERS = ("XY", "5", "QQQ", "", "  ")
+
+    def test_check_filler_rejects_what_is_not_one_letter(self) -> None:
+        for value in self.BAD_FILLERS:
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError) as caught:
+                    check_filler(value)
+                self.assertIn("single letter", str(caught.exception))
+
+    def test_check_filler_cleans_what_it_accepts(self) -> None:
+        self.assertEqual(check_filler(" x "), "X")
+        self.assertEqual(check_filler("Z"), "Z")
+
+    def test_check_filler_knows_which_argument_is_wrong(self) -> None:
+        with self.assertRaises(ValueError) as caught:
+            check_filler("XY", name="alternative filler")
+        message = str(caught.exception)
+        self.assertIn("alternative filler", message)
+        self.assertIn("alternative=", message)
+
+    def test_check_filler_rejects_a_letter_the_square_lacks(self) -> None:
+        square = playfair_square("ORANGES", omit="Q")
+        with self.assertRaises(ValueError) as caught:
+            check_filler("Q", square=square)
+        self.assertIn("not in the square", str(caught.exception))
+
+    def test_every_entry_point_that_takes_a_filler_rejects_the_same_values(
+        self,
+    ) -> None:
+        # The bug this guards: `--filler XY` was an error on one path and
+        # silently discarded on another, so the operator could not tell
+        # whether it had been understood.
+        for value in self.BAD_FILLERS:
+            for call, args in (
+                (check_filler, (value,)),
+                (prepare_digraphs, ("HELLO",)),
+                (prepare_text, ("HELLO",)),
+                (encrypt, ("HELLO", MONARCHY)),
+            ):
+                with self.subTest(value=value, call=call.__name__):
+                    with self.assertRaises(ValueError):
+                        if call is check_filler:
+                            call(*args)
+                        else:
+                            call(*args, filler=value)
+
+    def test_a_valid_filler_changes_the_ciphertext(self) -> None:
+        # The other half of "never just ignored": a value that survives
+        # validation has to do something.
+        self.assertNotEqual(
+            encrypt("BALLOON", MONARCHY, filler="Z"),
+            encrypt("BALLOON", MONARCHY, filler="X"),
+        )
+
+
+class TestErrorsDoNotInventCommandLineFlags(unittest.TestCase):
+    """Advice in an error message has to be true for whoever reads it.
+
+    The J error used to say "try omit='Q'" and the filler error "pass
+    alternative='Q'". Both are Python keyword arguments; a reader following
+    them on the command line got "unrecognized arguments" instead.
+    """
+
+    def messages(self) -> list[str]:
+        """Every rejection message that names a Python keyword argument."""
+        found: list[str] = []
+        for call, args, kwargs in (
+            (playfair_square, ("MONARCHY",), {"omit": "JQ"}),
+            (check_filler, ("XY",), {}),
+            (check_filler, ("XY",), {"name": "alternative filler"}),
+            (encrypt, ("HELLO", MONARCHY), {"filler": "X", "alternative": "X"}),
+            (decrypt, ("ABJC", MONARCHY), {}),
+            (
+                playfair_square(MONARCHY).position,
+                ("J",),
+                {},
+            ),
+        ):
+            with self.assertRaises(ValueError) as caught:
+                call(*args, **kwargs)
+            found.append(str(caught.exception))
+        found.extend(validate_ciphertext("ABJC", plain_square()))
+        return found
+
+    def test_a_named_python_argument_is_labelled_as_one(self) -> None:
+        for message in self.messages():
+            with self.subTest(message=message[:60]):
+                if not any(
+                    token in message
+                    for token in ("omit=", "filler=", "alternative=")
+                ):
+                    continue
+                self.assertTrue(
+                    "In Python" in message or "in Python" in message,
+                    f"names a Python argument without saying so: {message}",
+                )
+                self.assertIn("library argument", message)
+
+    def test_no_message_offers_a_flag_the_command_line_does_not_have(
+        self,
+    ) -> None:
+        for message in self.messages():
+            with self.subTest(message=message[:60]):
+                for invented in ("--omit", "--alternative", "--fold"):
+                    self.assertNotIn(invented, message)
+
+    def test_advice_only_names_an_omission_the_ciphertext_allows(self) -> None:
+        # Suggesting omit='Q' for a text that also contains a Q sends the
+        # reader round a loop and implies the tool has an answer it lacks.
+        allowed = validate_ciphertext("ABJC", plain_square())[0]
+        self.assertIn("omit='Q'", allowed)
+
+        blocked = validate_ciphertext("ABJQ", plain_square())[0]
+        self.assertNotIn("omit='Q'", blocked)
+        self.assertIn("not Playfair ciphertext", blocked)
 
 
 class TestModuleIsOffline(unittest.TestCase):

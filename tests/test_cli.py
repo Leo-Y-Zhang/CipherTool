@@ -7,8 +7,10 @@ crash and prints what it promises.
 
 from __future__ import annotations
 
+import argparse
 import contextlib
 import io
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -29,6 +31,40 @@ def run(*argv: str) -> tuple[int, str]:
     with contextlib.redirect_stdout(buffer), contextlib.redirect_stderr(buffer):
         code = cli.main(list(argv))
     return code, buffer.getvalue()
+
+
+def run_rejecting(*argv: str) -> tuple[int, str]:
+    """Run the CLI expecting argparse to reject the line.
+
+    argparse reports a bad value by raising ``SystemExit(2)`` from inside
+    ``parse_args``, so it never reaches ``main``'s return statement.
+    """
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer), contextlib.redirect_stderr(buffer):
+        try:
+            code = cli.main(list(argv))
+        except SystemExit as stop:
+            code = stop.code
+    return code, buffer.getvalue()
+
+
+def run_shell_session(*lines: str) -> str:
+    """Type *lines* at the interactive shell and return everything printed.
+
+    Nothing here catches exceptions: a line that kills the shell must fail
+    the test that types it, which is the whole point of most of these.
+    """
+    script = io.StringIO("\n".join(lines) + "\n")
+    buffer = io.StringIO()
+    original_stdin = sys.stdin
+    sys.stdin = script
+    try:
+        with contextlib.redirect_stdout(buffer), \
+                contextlib.redirect_stderr(buffer):
+            cli.main(["shell"])
+    finally:
+        sys.stdin = original_stdin
+    return buffer.getvalue()
 
 
 class TestReadSource(unittest.TestCase):
@@ -305,5 +341,358 @@ class TestContextCommand(unittest.TestCase):
         self.assertIn("wrong", output)
 
 
+class TestByteOrderMark(unittest.TestCase):
+    """Notepad's "UTF-8" writes a BOM, so BOM files are the common case."""
+
+    def setUp(self) -> None:
+        self.directory = tempfile.TemporaryDirectory()
+        self.path = Path(self.directory.name) / "notepad.txt"
+        # Written as bytes, because the point is a real file on disk saved
+        # the way Notepad saves one, not a Python string with an escape in it.
+        self.path.write_bytes(b"\xef\xbb\xbfHEALI OPASD EHANS")
+
+    def tearDown(self) -> None:
+        self.directory.cleanup()
+
+    def test_show_reads_a_bom_file(self) -> None:
+        code, output = run("show", str(self.path), "--quiet")
+        self.assertEqual(code, 0)
+        self.assertIn("HEALIOPASDEHANS", output)
+        self.assertNotIn("\ufeff", output)
+
+    def test_caesar_reads_a_bom_file(self) -> None:
+        code, output = run("caesar", str(self.path), "--top", "1", "--quiet")
+        self.assertEqual(code, 0)
+        self.assertNotIn("\ufeff", output)
+
+    def test_auto_reads_a_bom_file(self) -> None:
+        code, output = run("auto", str(self.path), "--fast", "--top", "1",
+                           "--quiet")
+        self.assertEqual(code, 0)
+        self.assertNotIn("\ufeff", output)
+
+    def test_the_shell_reads_a_bom_file(self) -> None:
+        output = run_shell_session(f"load {self.path}", "show", "quit")
+        self.assertIn("HEALIOPASDEHANS", output)
+        self.assertNotIn("\ufeff", output)
+
+    def test_a_bom_in_inline_text_never_reaches_the_output(self) -> None:
+        code, output = run("show", "--text", "\ufeffHEALI OPASD", "--quiet")
+        self.assertEqual(code, 0)
+        self.assertNotIn("\ufeff", output)
+
+    def test_read_file_hands_on_no_mark(self) -> None:
+        # The mark is stopped at the boundary rather than only where it
+        # happens to be printed today: every command reads through here, and
+        # some of them (analyse, encodings, polybius) work on the raw text
+        # rather than the normalised view.
+        text, path = cli.read_file(str(self.path))
+        self.assertNotIn("\ufeff", text)
+        self.assertTrue(text.startswith("HEALI"), text[:10])
+        self.assertEqual(path, str(self.path))
+
+    def test_read_source_hands_on_no_mark_from_inline_text(self) -> None:
+        arguments = argparse.Namespace(text="\ufeffHEALI OPASD", input=None)
+        text, path = cli.read_source(arguments)
+        self.assertEqual(text, "HEALI OPASD")
+        self.assertIsNone(path)
+
+
+class TestNonPositiveLimits(unittest.TestCase):
+    """One reading of a bad limit, at the one layer that sees every command.
+
+    ``--max-time 0`` used to raise a traceback in three commands, be ignored
+    by two more and produce "no candidates" in the rest. Only one of those can
+    be right, and none of them is: a deadline of zero is a user error.
+    """
+
+    TEXT = "HEALIOPASDEHANSTHEQUICKBROWNFOXJUMPSOVERTHELAZYDOG"
+
+    #: Every command that accepts --max-time and used to disagree about zero.
+    TIMED = ("substitution", "columnar", "transposition", "vigenere",
+             "bifid", "hill", "auto")
+
+    def test_zero_max_time_is_rejected_by_every_command(self) -> None:
+        for command in self.TIMED:
+            with self.subTest(command=command):
+                code, output = run_rejecting(command, "--text", self.TEXT,
+                                             "--max-time", "0")
+                self.assertEqual(code, 2)
+                self.assertIn("greater than zero seconds", output)
+
+    def test_negative_max_time_is_rejected(self) -> None:
+        code, output = run_rejecting("vigenere", "--text", self.TEXT,
+                                     "--max-time", "-2")
+        self.assertEqual(code, 2)
+        self.assertIn("greater than zero seconds", output)
+
+    def test_nan_max_time_is_rejected(self) -> None:
+        # NaN compares false against everything, so a `<= 0` guard would let
+        # it through and hand a meaningless deadline to the solvers.
+        code, output = run_rejecting("vigenere", "--text", self.TEXT,
+                                     "--max-time", "nan")
+        self.assertEqual(code, 2)
+        self.assertIn("greater than zero seconds", output)
+
+    def test_a_real_max_time_still_works(self) -> None:
+        code, output = run("vigenere", "--text", self.TEXT, "--max-time",
+                           "5", "--max-key-length", "4", "--top", "1",
+                           "--quiet")
+        self.assertEqual(code, 0)
+        self.assertTrue(output.strip())
+
+    def test_zero_top_is_rejected_rather_than_showing_everything(self) -> None:
+        code, output = run_rejecting("caesar", "--text", self.TEXT, "--top",
+                                     "0")
+        self.assertEqual(code, 2)
+        self.assertIn("at least 1", output)
+
+    def test_negative_top_is_rejected(self) -> None:
+        code, output = run_rejecting("caesar", "--text", self.TEXT,
+                                     "--top=-5")
+        self.assertEqual(code, 2)
+        self.assertIn("at least 1", output)
+
+    def test_shell_top_zero_is_rejected(self) -> None:
+        output = run_shell_session("text ABCDEFGHIJ", "top 0", "quit")
+        self.assertIn("at least 1", output)
+        self.assertNotIn("Showing up to", output)
+
+    def test_shell_top_still_accepts_a_real_number(self) -> None:
+        output = run_shell_session("text ABCDEFGHIJ", "top 3", "quit")
+        self.assertIn("Showing up to 3 candidates", output)
+
+
+class TestShellCribRouting(unittest.TestCase):
+    """`crib THE` must test THE, and nothing else.
+
+    Every command shares an optional file positional and argparse fills it
+    first, so in the shell the crib word landed in the file slot and the
+    filename was adopted as the crib -- printing confident verdicts ("this
+    rules the Caesar cipher out") about a crib nobody typed.
+    """
+
+    def setUp(self) -> None:
+        self.directory = tempfile.TemporaryDirectory()
+        self.path = Path(self.directory.name) / "message.txt"
+        self.path.write_text(
+            "HEALIOPASDEHANSTHEQUICKBROWNFOXJUMPSOVERTHELAZYDOG",
+            encoding="utf-8")
+
+    def tearDown(self) -> None:
+        self.directory.cleanup()
+
+    def test_crib_after_load_tests_the_crib_not_the_filename(self) -> None:
+        output = run_shell_session(f"load {self.path}", "crib THE", "quit")
+        self.assertIn('Crib test: "THE" (3 letters)', output)
+        # "message.txt" normalises to MESSAGETXT; its appearance anywhere
+        # means the filename was tested as the crib.
+        self.assertNotIn("MESSAGETXT", output)
+
+    def test_crib_after_text_finds_the_crib(self) -> None:
+        output = run_shell_session("text HEALIOPASDEHANS", "crib THE", "quit")
+        self.assertIn('Crib test: "THE" (3 letters)', output)
+        self.assertNotIn("Give at least one crib", output)
+
+    def test_several_cribs_in_the_shell(self) -> None:
+        output = run_shell_session("text HEALIOPASDEHANS", "crib THE AND",
+                                   "quit")
+        self.assertIn('Crib test: "THE"', output)
+        self.assertIn('Crib test: "AND"', output)
+
+    def test_a_file_and_a_crib_from_the_terminal(self) -> None:
+        code, output = run("crib", str(self.path), "THE", "--quiet")
+        self.assertEqual(code, 0)
+        self.assertIn('Crib test: "THE" (3 letters)', output)
+
+    def test_text_and_a_crib_from_the_terminal(self) -> None:
+        code, output = run("crib", "THE", "--text", "HEALIOPASD", "--quiet")
+        self.assertEqual(code, 0)
+        self.assertIn('Crib test: "THE" (3 letters)', output)
+
+    def test_a_stray_word_is_reported_rather_than_ignored(self) -> None:
+        # Silently dropping it would let the user believe an argument they
+        # typed had been honoured.
+        output = run_shell_session("text ABCDEFGHIJ", "caesar nonsense.txt",
+                                   "quit")
+        self.assertIn("not an argument", output)
+        self.assertNotIn("Candidate 1", output)
+
+
+class TestShellSurvivesEverything(unittest.TestCase):
+    """Nothing typed at the prompt may end the session."""
+
+    def setUp(self) -> None:
+        self.directory = tempfile.TemporaryDirectory()
+
+    def tearDown(self) -> None:
+        self.directory.cleanup()
+
+    def test_bare_load_does_not_kill_the_session(self) -> None:
+        # Path("") resolves to the current directory, which exists, so a bare
+        # `load` used to try to read a directory and take the shell with it.
+        output = run_shell_session("load", "text ATTACKATDAWN", "show", "quit")
+        self.assertIn("load needs a filename", output)
+        self.assertIn("ORIGINAL INPUT", output)
+        self.assertIn("Bye.", output)
+
+    def test_loading_a_directory_does_not_kill_the_session(self) -> None:
+        output = run_shell_session(f"load {self.directory.name}",
+                                   "text ATTACKATDAWN", "show", "quit")
+        self.assertIn("directory", output)
+        self.assertIn("ORIGINAL INPUT", output)
+        self.assertIn("Bye.", output)
+
+    def test_a_missing_file_does_not_kill_the_session(self) -> None:
+        output = run_shell_session("load no_such_file.txt",
+                                   "text ATTACKATDAWN", "show", "quit")
+        self.assertIn("No such file", output)
+        self.assertIn("ORIGINAL INPUT", output)
+
+    def test_a_solver_error_does_not_kill_the_session(self) -> None:
+        output = run_shell_session("text HEALIOPASD", "vigenere --key 123",
+                                   "show", "quit")
+        self.assertIn("contains no letters", output)
+        self.assertIn("ORIGINAL INPUT", output)
+
+
+class TestShellErrorReporting(unittest.TestCase):
+    def test_unknown_command_says_so_before_nothing_loaded(self) -> None:
+        # "nothing loaded" would send the user to load a file that could not
+        # have helped: the command does not exist either way.
+        output = run_shell_session("wibble", "quit")
+        self.assertIn("unknown command", output)
+        self.assertNotIn("nothing loaded", output)
+
+    def test_a_real_command_with_nothing_loaded_still_says_so(self) -> None:
+        output = run_shell_session("caesar", "quit")
+        self.assertIn("nothing loaded", output)
+        self.assertNotIn("unknown command", output)
+
+    def test_errors_do_not_carry_the_exception_class_name(self) -> None:
+        output = run_shell_session("text HEALIOPASD", "vigenere --key 123",
+                                   "quit")
+        self.assertIn("Vigenere key '123' contains no letters", output)
+        self.assertNotIn("ValueError", output)
+
+    def test_an_exception_with_no_message_is_still_named(self) -> None:
+        # The class name is the fallback, not the default: printing "error:"
+        # and nothing else would be worse than printing the class.
+        self.assertEqual(cli._error_message(ValueError()),
+                         "ValueError (no further detail)")
+        self.assertEqual(cli._error_message(ValueError("bad key")), "bad key")
+
+
+class TestCaesarShiftLabel(unittest.TestCase):
+    """A key that is not the key the user typed must not be reported as it."""
+
+    def test_a_shift_beyond_25_reports_the_shift_actually_used(self) -> None:
+        _, output = run("caesar", "--text", "ATTACKATDAWN", "--shift", "99",
+                        "--quiet")
+        self.assertIn("shift=21", output)
+
+    def test_a_negative_shift_reports_the_shift_actually_used(self) -> None:
+        _, output = run("caesar", "--text", "ATTACKATDAWN", "--shift", "-3",
+                        "--quiet")
+        self.assertIn("shift=23", output)
+
+    def test_encrypting_reports_it_too(self) -> None:
+        _, output = run("caesar", "--text", "ATTACKATDAWN", "--shift", "99",
+                        "--encrypt", "--quiet")
+        self.assertIn("shift=21", output)
+
+    def test_an_ordinary_shift_is_reported_plainly(self) -> None:
+        _, output = run("caesar", "--text", "ATTACKATDAWN", "--shift", "3",
+                        "--quiet")
+        self.assertIn("shift=3", output)
+        self.assertNotIn("only 26 shifts exist", output)
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPasteSession(unittest.TestCase):
+    """The double-click flow: paste a ciphertext, read the plaintext.
+
+    This exists because a competition ciphertext arrives as a block of
+    five-letter groups over several lines, and pasting that into the command
+    shell made every line an unknown command.
+    """
+
+    def _paste(self, *lines: str) -> str:
+        script = io.StringIO("\n".join(lines) + "\n")
+        buffer = io.StringIO()
+        original = sys.stdin
+        sys.stdin = script
+        try:
+            with contextlib.redirect_stdout(buffer), \
+                    contextlib.redirect_stderr(buffer):
+                cli.main(["paste"])
+        finally:
+            sys.stdin = original
+        return buffer.getvalue()
+
+    def test_multi_line_paste_is_one_message(self) -> None:
+        ciphertext = caesar.encrypt(sample_plaintext(200), 3)
+        grouped = [ciphertext[i:i + 25] for i in range(0, len(ciphertext), 25)]
+        output = self._paste(*grouped, "", "q")
+        self.assertIn("BEST ANSWER", output)
+        self.assertIn(sample_plaintext(40), output.replace("\n", "")
+                      .replace("  ", ""))
+        self.assertNotIn("unknown command", output)
+
+    def test_the_plaintext_is_shown_unbroken(self) -> None:
+        # Not poured back into the ciphertext's five-letter groups: those are
+        # not word boundaries, and "ISNOT HINGS" reads like a bad decryption.
+        ciphertext = caesar.encrypt(sample_plaintext(120), 3)
+        output = self._paste(ciphertext, "", "q")
+        collapsed = "".join(output.split())
+        self.assertIn(sample_plaintext(60), collapsed)
+
+    def test_it_says_read_it_before_submitting(self) -> None:
+        output = self._paste(caesar.encrypt(sample_plaintext(200), 3), "", "q")
+        self.assertIn("READ IT BEFORE YOU SUBMIT IT", output)
+        self.assertIn("not a verdict", output)
+
+    def test_nothing_pasted_is_explained(self) -> None:
+        output = self._paste("", "")
+        self.assertIn("No letters were pasted", output)
+
+    def test_q_at_the_paste_prompt_backs_out(self) -> None:
+        # Someone who opens this by mistake types 'q'. It used to be
+        # analysed as a one-letter ciphertext, complete with a key.
+        output = self._paste("q")
+        self.assertIn("No letters were pasted", output)
+        self.assertNotIn("BEST ANSWER", output)
+
+    def test_a_ciphertext_starting_with_q_still_works(self) -> None:
+        # The quit word is only honoured as the very first thing typed, so a
+        # real message is never mistaken for it.
+        ciphertext = caesar.encrypt(sample_plaintext(150), 3)
+        output = self._paste(ciphertext, "Q", "", "q")
+        self.assertIn("BEST ANSWER", output)
+
+    def test_unsolvable_input_is_not_sold_as_an_answer(self) -> None:
+        import random
+
+        generator = random.Random(4)
+        noise = "".join(generator.choice("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+                        for _ in range(300))
+        output = self._paste(noise, "", "q")
+        self.assertIn("probably NOT the plaintext", output)
+        self.assertIn("did not score like English", output)
+
+    def test_unencrypted_input_says_so(self) -> None:
+        output = self._paste(sample_plaintext(300), "", "q")
+        self.assertIn("DOES NOT APPEAR TO BE ENCRYPTED", output)
+
+    def test_leading_blank_lines_do_not_end_the_paste(self) -> None:
+        # People press Enter before pasting. That must not read as "done".
+        ciphertext = caesar.encrypt(sample_plaintext(150), 3)
+        output = self._paste("", "", ciphertext, "", "q")
+        self.assertIn("BEST ANSWER", output)
+
+    def test_quit_leaves_immediately(self) -> None:
+        output = self._paste(caesar.encrypt(sample_plaintext(120), 3), "", "q")
+        self.assertNotIn("Searching harder", output)

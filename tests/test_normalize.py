@@ -17,6 +17,7 @@ from cipher_tool.normalize import (
     group_text,
     letters_only,
     normalize,
+    strip_bom,
     to_numbers,
 )
 
@@ -97,6 +98,36 @@ class TestNormalize(unittest.TestCase):
         self.assertEqual(len(result), len(result.letters))
         self.assertEqual(result.letters, "HELLOTHEREFRIEND")
         self.assertEqual(result.length, 16)
+
+
+class TestByteOrderMark(unittest.TestCase):
+    """A BOM is how the file was saved, not something the sender wrote.
+
+    Notepad writes one for every file saved as "UTF-8", so it arrives often.
+    Left in the normalised text it reaches the terminal, where a code page
+    that cannot represent it raises UnicodeEncodeError -- a crash blamed on
+    the toolkit for something the user did not do.
+    """
+
+    def test_strip_bom_removes_marks_anywhere_not_just_the_first(self) -> None:
+        self.assertEqual(strip_bom("\ufeffAB\ufeffCD\ufeff"), "ABCD")
+
+    def test_strip_bom_leaves_ordinary_text_alone(self) -> None:
+        self.assertEqual(strip_bom("Attack at dawn!"), "Attack at dawn!")
+
+    def test_normalize_keeps_no_bom_in_the_original(self) -> None:
+        result = normalize("\ufeffHEALI OPASD")
+        self.assertNotIn("\ufeff", result.original)
+        self.assertEqual(result.original, "HEALI OPASD")
+        self.assertEqual(result.letters, "HEALIOPASD")
+
+    def test_positions_and_relayout_survive_a_bom(self) -> None:
+        # The position map indexes `original`, so stripping the BOM before
+        # building it is what keeps relayout aligned.
+        result = normalize("\ufeffa-b")
+        self.assertEqual(result.letters, "AB")
+        self.assertEqual(result.positions, (0, 2))
+        self.assertEqual(result.relayout("XY"), "X-Y")
 
 
 class TestGrouping(unittest.TestCase):

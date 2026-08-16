@@ -10,7 +10,8 @@ are a transcription convenience, not information about the plaintext. Several
 classical attacks would be badly misled by treating them as words, so this
 module keeps two parallel views of the input:
 
-* ``original``      -- exactly what the user gave us, byte for byte.
+* ``original``      -- exactly what the user gave us, byte for byte, less any
+  byte-order mark (an encoding artefact, not part of the message).
 * ``letters_only``  -- uppercase A-Z with everything else removed.
 
 A position map ties the two together so a recovered plaintext can be re-laid
@@ -35,6 +36,26 @@ ALPHABET_SIZE = 26
 #: written as escapes rather than literal characters so that every source file
 #: in this project stays pure ASCII and is trivially auditable.
 _COMBINING = re.compile("[\u0300-\u036f]")
+
+#: U+FEFF is the byte-order mark. Notepad writes one at the start of every
+#: file it saves as "UTF-8", and a copy-and-paste out of such a file can carry
+#: one into the middle of a string. It is an encoding marker, not a character
+#: of the message, so it is removed rather than carried around: left in, it
+#: reaches the terminal and raises UnicodeEncodeError on a code page that
+#: cannot represent it, which reads as a crash in the toolkit rather than as
+#: an artefact of how the file was saved.
+_BYTE_ORDER_MARK = "\ufeff"
+
+
+def strip_bom(text: str) -> str:
+    """Remove byte-order marks from anywhere in *text*.
+
+    ``utf-8-sig`` removes a leading BOM when decoding a file, but a BOM can
+    also arrive mid-string from a paste, or from concatenated files. This is
+    the belt to that decoder's braces, and it is applied to every piece of
+    text the toolkit takes in.
+    """
+    return text.replace(_BYTE_ORDER_MARK, "")
 
 
 def fold_to_ascii(text: str) -> str:
@@ -146,7 +167,13 @@ def normalize(text: str) -> NormalizedText:
     five-character grouping and any other arbitrary grouping. Nothing is
     rejected; anything that is not a letter is simply not part of the
     cryptanalytic view.
+
+    Byte-order marks are the one exception to "the original is preserved
+    exactly". A BOM is a record of how the file was *saved*, not something the
+    sender wrote, and keeping it would put an unprintable character into
+    ``original`` -- which is echoed verbatim by ``show``.
     """
+    text = strip_bom(text)
     folded = fold_to_ascii(text)
 
     letters: list[str] = []

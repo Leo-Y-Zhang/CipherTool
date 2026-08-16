@@ -33,7 +33,10 @@ distribution washes out the single-letter peaks.
 What Playfair cannot hide
 -------------------------
 * The ciphertext always has an EVEN number of letters.
-* The omitted letter (classically J) never appears.
+* The omitted letter (classically J) never appears. This cuts both ways: a J
+  in the ciphertext is proof that the square did *not* merge I/J, which is
+  usable evidence rather than bad input, so :func:`solve` reads it and moves
+  to the other standard omission instead of refusing to start.
 * No digraph is ever a doubled letter: the rules always send two distinct
   letters to two distinct letters, and the preparation step guarantees no pair
   starts out doubled. So ``...LL...`` at an even offset is proof that a text is
@@ -134,6 +137,7 @@ __all__ = [
     "canonical_square",
     "prepare_digraphs",
     "prepare_text",
+    "check_filler",
     "validate_ciphertext",
     "encrypt",
     "decrypt",
@@ -150,6 +154,12 @@ SQUARE_LETTERS = SQUARE_SIZE * SQUARE_SIZE
 DEFAULT_OMITTED = "J"
 DEFAULT_FILLER = "X"
 DEFAULT_ALTERNATIVE_FILLER = "Q"
+
+#: The only two omissions in general use, in the order a search should try
+#: them. Nothing else is guessed at: a square omitting some other letter is a
+#: real variant, but choosing one because the ciphertext happens to lack that
+#: letter would be inventing evidence rather than reading it.
+STANDARD_OMISSIONS = ("J", "Q")
 
 #: When the omitted letter is I or J the two are *merged*: the omitted one is
 #: rewritten as its partner. Any other omitted letter (Q is the usual choice)
@@ -247,7 +257,9 @@ class PlayfairSquare:
             raise ValueError(
                 f"The letter {letter!r} is not in this square, which omits "
                 f"{self.omitted!r}. Fold the text first (see fold()), or build "
-                f"the square with a different omit= letter."
+                f"the square with a different omitted letter -- in Python, the "
+                f"omit= library argument of playfair_square(); there is no "
+                f"command-line flag for it."
             )
         return divmod(index, SQUARE_SIZE)
 
@@ -296,9 +308,10 @@ def _check_omitted(omit: str) -> str:
     cleaned = clean_key(omit)
     if len(cleaned) != 1:
         raise ValueError(
-            f"omit= must name exactly one letter A-Z to leave out of the "
-            f"25-letter square, got {omit!r}. Use omit='J' for the usual I/J "
-            "merge, or omit='Q' to drop Q instead."
+            f"The omitted letter must be exactly one letter A-Z, so that the "
+            f"other 25 fill the square, got {omit!r}. In Python, pass "
+            f"omit='J' for the usual I/J merge or omit='Q' to drop Q instead; "
+            f"omit= is a library argument, not a command-line flag."
         )
     return cleaned
 
@@ -462,21 +475,47 @@ def canonical_square(
 # ---------------------------------------------------------------------------
 
 
-def _check_filler(value: str, name: str, square: PlayfairSquare) -> str:
-    """Validate one of the two fillers against the square that will use it."""
+def check_filler(
+    value: str,
+    *,
+    square: PlayfairSquare | None = None,
+    omit: str = DEFAULT_OMITTED,
+    name: str = "filler",
+) -> str:
+    """Validate a filler letter and return it cleaned, or raise ``ValueError``.
+
+    Public because every layer that *accepts* a filler has to reject a bad one
+    at the point it is accepted. A filler only ever affects encryption -- it is
+    inserted between doubled letters and used to pad an odd tail -- so a layer
+    that takes a filler and then calls :func:`decrypt` or :func:`solve` is
+    accepting an argument it cannot use. Validating here at least turns a
+    silently discarded ``--filler XY`` into an error; whether such a layer
+    should offer the option at all is its own decision.
+
+    *square* is the square the filler will actually be enciphered in. Pass it
+    whenever it is known: a filler has to be a letter the square contains, and
+    that cannot be checked without it. Without one, the check falls back to the
+    plain square for *omit*, which catches everything except a filler that is
+    legal in the default alphabet but missing from some other square.
+
+    *name* names the argument in the error message ("filler" or "alternative
+    filler"), because being told which of the two is wrong is the whole point
+    of reading the message.
+    """
+    grid = square if square is not None else plain_square(omit=omit)
+    argument = name.split()[0]
     cleaned = clean_key(value)
     if len(cleaned) != 1:
         raise ValueError(
-            f"The {name} must be a single letter A-Z, got {value!r}. Pass for "
-            f"example {name.split()[0]}='X'."
+            f"The {name} must be a single letter A-Z, got {value!r}. In "
+            f"Python, pass {argument}='X'; {argument}= is a library argument "
+            f"of encrypt() and prepare_text(), not a command-line flag."
         )
-    if not square.contains(cleaned):
-        replacement = next(
-            ch for ch in "XZQKV" + ALPHABET if square.contains(ch)
-        )
+    if not grid.contains(cleaned):
+        replacement = next(ch for ch in "XZQKV" + ALPHABET if grid.contains(ch))
         raise ValueError(
             f"The {name} {cleaned!r} is not in the square, which omits "
-            f"{square.omitted!r}, so it could never be enciphered. Choose "
+            f"{grid.omitted!r}, so it could never be enciphered. Choose "
             f"another letter, for example {replacement!r}."
         )
     return cleaned
@@ -511,13 +550,16 @@ def prepare_digraphs(
     would have nothing to fall back on).
     """
     grid = square if square is not None else plain_square(omit=omit)
-    first_filler = _check_filler(filler, "filler", grid)
-    second_filler = _check_filler(alternative, "alternative filler", grid)
+    first_filler = check_filler(filler, square=grid)
+    second_filler = check_filler(
+        alternative, square=grid, name="alternative filler"
+    )
     if first_filler == second_filler:
         raise ValueError(
             f"The filler and the alternative filler are both {first_filler!r}. "
             "They must differ, because a doubled filler is split using the "
-            "alternative; pass for example filler='X', alternative='Q'."
+            "alternative. In Python, pass filler='X' and alternative='Q'; both "
+            "are library arguments, not command-line flags."
         )
 
     letters = grid.fold(text)
@@ -569,6 +611,21 @@ def prepare_text(
 # ---------------------------------------------------------------------------
 
 
+def _usable_omissions(letters: str, current: str) -> list[str]:
+    """Standard omissions, other than *current*, that *letters* does not use.
+
+    A square that omits X can never emit an X, so the ciphertext itself rules
+    omissions out. This returns the ones it has not ruled out, in the order of
+    :data:`STANDARD_OMISSIONS`.
+    """
+    seen = set(letters)
+    return [
+        letter
+        for letter in STANDARD_OMISSIONS
+        if letter != current and letter not in seen
+    ]
+
+
 def _fatal_problems(letters: str, square: PlayfairSquare) -> list[str]:
     """Problems that make decryption impossible rather than merely suspicious."""
     problems: list[str] = []
@@ -594,12 +651,28 @@ def _fatal_problems(letters: str, square: PlayfairSquare) -> list[str]:
             if square.folded_onto
             else f"drops {square.omitted}"
         )
+        # Only suggest an omission the ciphertext could actually survive.
+        # Advising omit='Q' for a text that also contains a Q sends the
+        # operator round a loop and reads as though the tool has an answer.
+        escape = _usable_omissions(letters, square.omitted)
+        if escape:
+            advice = (
+                f"Either the square omits a different letter -- in Python, "
+                f"omit={escape[0]!r}, a library argument rather than a "
+                f"command-line flag, and solve() tries that automatically when "
+                f"no key is supplied -- or the ciphertext is not Playfair."
+            )
+        else:
+            ruled_out = " or ".join(repr(ch) for ch in STANDARD_OMISSIONS)
+            advice = (
+                f"No square omitting {ruled_out} can produce this text either, "
+                f"because it uses all of those letters, so this is not "
+                f"Playfair ciphertext under any standard square: check the "
+                f"transcription, or try a different cipher."
+            )
         problems.append(
             f"The ciphertext contains {' '.join(stray)}, which this square "
-            f"cannot produce because it {merge} (positions {shown}). Either "
-            f"the square should omit a different letter (try omit="
-            f"'{'Q' if square.omitted != 'Q' else 'J'}'), or the ciphertext is "
-            "not Playfair."
+            f"cannot produce because it {merge} (positions {shown}). {advice}"
         )
 
     return problems
@@ -1161,6 +1234,58 @@ def _trimmed(results: CandidateSet, top: int) -> CandidateSet:
     return kept
 
 
+def _searchable_square(
+    letters: str, preferred: PlayfairSquare
+) -> tuple[PlayfairSquare, str | None]:
+    """Pick the square alphabet the ciphertext could actually have come from.
+
+    Which letter the square leaves out is not a setting the operator has to
+    get right before the search will run -- when no key is supplied it is part
+    of what is being searched, and the ciphertext states it outright. A J in
+    the ciphertext is *proof* that the square did not merge I/J, which is
+    genuine negative evidence, not an error in the input. Throwing it away as
+    an exception forces the operator to guess the flag that would have worked;
+    reading it and saying so leaves them better informed either way.
+
+    So: if *preferred* can produce *letters*, it is returned unchanged. If it
+    cannot, and exactly one standard omission is left standing, that square is
+    returned together with a sentence recording the swap for the diagnostics.
+    If the ciphertext rules out every standard square, *preferred* is returned
+    unchanged and :func:`_fatal_problems` is left to explain why nothing fits
+    -- because at that point there is no honest square to search with.
+
+    Only ever used when no key was supplied. A supplied key is an assertion
+    about the square, and quietly re-keying it under a different alphabet
+    would answer a question the operator did not ask.
+    """
+    if preferred.omitted not in letters:
+        return preferred, None
+
+    escape = _usable_omissions(letters, preferred.omitted)
+    if not escape:
+        return preferred, None
+
+    chosen = plain_square(omit=escape[0])
+    was = (
+        f"merged {preferred.folded_onto}/{preferred.omitted}"
+        if preferred.folded_onto
+        else f"dropped {preferred.omitted}"
+    )
+    now = (
+        f"merges {chosen.folded_onto}/{chosen.omitted}"
+        if chosen.folded_onto
+        else f"drops {chosen.omitted}"
+    )
+    note = (
+        f"the ciphertext contains {preferred.omitted}, so the square cannot "
+        f"have {was}; the search used a square that {now} instead, where "
+        f"{preferred.omitted} is a legal ciphertext letter. If that square is "
+        f"wrong the text is not Playfair, and the plaintext below will read "
+        f"as nonsense."
+    )
+    return chosen, note
+
+
 def _outlook(length: int) -> str:
     """An honest one-line prognosis for a hill climb on this much ciphertext."""
     if length < 100:
@@ -1238,9 +1363,21 @@ def solve(
     ``outlook`` diagnostic on every candidate says so in words, and
     ``ciphertext_letters`` records what the attack had to work with.
 
+    The omitted letter, when no key is supplied, is chosen from the ciphertext
+    rather than taken on trust. ``omit`` says which square to *prefer*, but a
+    ciphertext containing that letter proves the square did not omit it, so
+    the search moves to the other standard omission and records what it did in
+    the ``omitted_letter_changed`` diagnostic on every candidate. That is the
+    ``cipher_tool playfair message.txt`` case: a J in the text is evidence
+    about the square, not a mistake in the input. Pass a key to switch the
+    behaviour off -- a supplied key is an assertion about the square, so a
+    ciphertext that contradicts it raises instead.
+
     Raises ``ValueError`` if the ciphertext cannot have come from this cipher
-    at all (odd length, or containing the omitted letter). Empty input returns
-    an empty :class:`CandidateSet`.
+    at all: odd length, a supplied key whose square could not have produced
+    it, or -- with no key -- a text that uses every standard omitted letter and
+    so cannot have come from any standard square. Empty input returns an empty
+    :class:`CandidateSet`.
     """
     normalized = normalize(source) if isinstance(source, str) else source
     letters = normalized.letters
@@ -1256,10 +1393,17 @@ def solve(
         supplied.extend(keys)
 
     # The structural checks depend only on which letter the square omits, so
-    # they can be made once, before any key is considered.
-    reference = (
-        as_square(supplied[0], omit=omit) if supplied else plain_square(omit=omit)
-    )
+    # they can be made once, before any key is considered. With no key to go
+    # on, the omitted letter is part of what is being searched, so a
+    # ciphertext that rules out the requested omission re-points the search
+    # rather than stopping it -- see _searchable_square.
+    if supplied:
+        reference = as_square(supplied[0], omit=omit)
+        omission_note = None
+    else:
+        reference, omission_note = _searchable_square(
+            letters, plain_square(omit=omit)
+        )
     fatal = _fatal_problems(letters, reference)
     if fatal:
         raise ValueError(
@@ -1272,6 +1416,8 @@ def solve(
         "digraphs": len(letters) // 2,
         "omitted_letter": reference.omitted,
     }
+    if omission_note is not None:
+        shared["omitted_letter_changed"] = omission_note
 
     if supplied:
         for entry in supplied:

@@ -30,17 +30,10 @@ if "%~1"=="" goto interactive
 exit /b %errorlevel%
 
 :interactive
-echo.
-echo   cipher_tool -- offline cryptanalysis toolkit
-echo   -------------------------------------------
-echo   Type 'help' for commands, or 'quit' to leave.
-echo.
-echo   Quick start:
-echo     load C:\path\to\message.txt
-echo     analyse
-echo     auto fast
-echo.
-%PY% -m cipher_tool shell
+REM Default to the paste-and-solve flow. It is what someone wants in the
+REM first thirty seconds, and unlike the command shell it copes with a
+REM ciphertext pasted across several lines.
+%PY% -m cipher_tool paste
 echo.
 pause
 exit /b 0

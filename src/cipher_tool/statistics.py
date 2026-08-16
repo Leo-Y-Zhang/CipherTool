@@ -475,14 +475,37 @@ def cipher_family_hypotheses(stats: TextStatistics) -> list[Hypothesis]:
 
     # -- 3. Flattened IC: several alphabets --------------------------------
     if ic < 0.058:
-        strength = "likely" if ic < 0.050 and not small_sample else "possible"
+        # An IC at or below the flat-random value is NOT evidence for a
+        # repeating key -- it is the absence of evidence for anything. Text
+        # that is genuinely random sits here, and so does a polyalphabetic
+        # cipher with a key long enough to flatten the statistics completely.
+        # The two are indistinguishable by this measurement, so the report
+        # must not prefer the interesting explanation over the dull one.
+        essentially_flat = ic <= RANDOM_IC + 0.002
+
+        if essentially_flat:
+            strength = "possible"
+            reason = (
+                f"IC={ic:.4f} is indistinguishable from the flat-random "
+                f"value ({RANDOM_IC:.4f}), so the letters are about as "
+                "evenly spread as they can be. That is consistent with a "
+                "repeating key, but equally with a key as long as the "
+                "message, with a cipher this toolkit does not implement, or "
+                f"with the text not being English underneath at all{caveat}."
+            )
+        else:
+            strength = "likely" if ic < 0.050 and not small_sample else "possible"
+            reason = (
+                f"IC={ic:.4f} sits between random ({RANDOM_IC:.4f}) and "
+                f"English ({ENGLISH_IC:.4f}), which is what mixing several "
+                f"alphabets does{caveat}."
+            )
+
         hypotheses.append(
             Hypothesis(
                 "Polyalphabetic (Vigenere, Beaufort, autokey)",
                 strength,
-                f"IC={ic:.4f} sits between random ({RANDOM_IC:.4f}) and "
-                f"English ({ENGLISH_IC:.4f}), which is what mixing several "
-                f"alphabets does{caveat}.",
+                reason,
                 (
                     "cipher_tool vigenere <file>",
                     "cipher_tool beaufort <file>",
@@ -504,6 +527,21 @@ def cipher_family_hypotheses(stats: TextStatistics) -> list[Hypothesis]:
                 ),
             )
         )
+        if essentially_flat and not small_sample:
+            hypotheses.append(
+                Hypothesis(
+                    "Possibly not an English letter cipher at all",
+                    "consider",
+                    f"Worth saying plainly: an IC of {ic:.4f} is about what "
+                    "random letters give. If every solver comes back weak, the "
+                    "likeliest explanations are that the message is not "
+                    "English underneath, that it uses a cipher this toolkit "
+                    "does not implement, or that the transcription is wrong. "
+                    "A long search will not fix any of those.",
+                    ("cipher_tool encodings <file>",
+                     "cipher_tool show <file>  # check the transcription"),
+                )
+            )
 
     # -- 4. Structural tells -----------------------------------------------
     # Kasiski and the column-IC test are independent ways of measuring the

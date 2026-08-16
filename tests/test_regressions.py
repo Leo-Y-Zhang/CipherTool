@@ -314,6 +314,105 @@ class TestCoarseClockDoesNotChangeTheAnswer(unittest.TestCase):
             )
 
 
+class TestNeverOverstatesWhatItKnows(unittest.TestCase):
+    """The failure this whole toolkit exists to avoid.
+
+    Found by adversarial first-run testing, not by the unit tests -- every
+    module's own tests passed throughout.
+    """
+
+    def test_unencrypted_input_is_not_reported_as_a_solve(self) -> None:
+        """Identity keys must not be sold as decryptions.
+
+        The bug: given text that was never encrypted, every solver found its
+        own do-nothing key -- Caesar shift 0, Vigenere key AAA, affine
+        a=1 b=0 -- each scored 'strong' because the text really is English.
+        The report then announced "CORROBORATION: Vigenere, Caesar shift,
+        Affine independently produced the same plaintext. Agreement between
+        unrelated attacks is strong evidence." Four attacks that decrypted
+        nothing, presented as corroborating one another.
+        """
+        from cipher_tool.auto import auto_solve
+
+        plaintext = sample(380, offset=0)
+        result = auto_solve(plaintext, effort="fast", top=5, seed=1)
+
+        self.assertTrue(
+            result.candidates.looks_unencrypted(),
+            "the pipeline should notice the input was never encrypted",
+        )
+        self.assertEqual(
+            result.candidates.corroborations(), [],
+            "identity keys must never be counted as agreeing evidence",
+        )
+        rendered = result.render(top=5)
+        self.assertIn("DOES NOT APPEAR TO BE ENCRYPTED", rendered)
+        self.assertNotIn("CORROBORATION", rendered)
+
+    def test_genuine_agreement_is_still_reported(self) -> None:
+        """The fix must not have silenced real corroboration.
+
+        A Caesar is found by Caesar, affine and substitution alike, and that
+        agreement is worth stating. Only identity results are excluded.
+        """
+        from cipher_tool import caesar
+        from cipher_tool.auto import auto_solve
+
+        ciphertext = caesar.encrypt(sample(400), 9)
+        result = auto_solve(ciphertext, effort="fast", top=5, seed=1)
+        self.assertFalse(result.candidates.looks_unencrypted())
+        self.assertGreater(len(result.candidates.corroborations()), 1)
+        self.assertIn("CORROBORATION", result.render(top=5))
+
+    def test_random_letters_are_not_called_likely_anything(self) -> None:
+        """The bug: 400 random letters gave 'Polyalphabetic (likely)'.
+
+        An index of coincidence at the flat-random value is the absence of
+        evidence, not evidence for a repeating key. The justification was
+        also arithmetically wrong -- it said the value 'sits between random
+        and English' for a value below random.
+        """
+        from cipher_tool.statistics import analyse
+
+        for seed in (2, 11, 23):
+            with self.subTest(seed=seed):
+                generator = random.Random(seed)
+                noise = "".join(
+                    generator.choice(ALPHABET) for _ in range(500)
+                )
+                hypotheses = analyse(noise).hypotheses
+                for hypothesis in hypotheses:
+                    self.assertNotEqual(
+                        hypothesis.confidence, "likely",
+                        f"random letters must not make {hypothesis.family!r} "
+                        "likely",
+                    )
+                    if "sits between random" in hypothesis.reason:
+                        self.fail("claimed the IC sits between random and "
+                                  "English without checking that it does")
+                self.assertTrue(
+                    any("not an English letter cipher" in h.family
+                        for h in hypotheses),
+                    "flat statistics should raise the possibility that this "
+                    "is not a letter cipher at all",
+                )
+
+    def test_a_real_vigenere_is_still_called_likely(self) -> None:
+        """The fix must not have made the report useless on real ciphertext."""
+        from cipher_tool import vigenere
+        from cipher_tool.statistics import analyse
+
+        ciphertext = vigenere.encrypt(sample(900, offset=200), "ORCHID")
+        families = [
+            h.family for h in analyse(ciphertext).hypotheses
+            if h.confidence == "likely"
+        ]
+        self.assertTrue(
+            any("Polyalphabetic" in family for family in families),
+            f"a real Vigenere should still read likely, got {families}",
+        )
+
+
 class TestCommandLineApiCalls(unittest.TestCase):
     """The CLI must call APIs that actually exist.
 

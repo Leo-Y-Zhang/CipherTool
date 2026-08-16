@@ -56,14 +56,53 @@ git clone https://github.com/Leo-Y-Zhang/CipherTool.git
 | **Mac** | `cipher_tool.command` |
 | **Linux** | `cipher_tool.sh` |
 
-That opens the interactive shell. Then type:
+It asks you to paste the ciphertext. Paste it in -- **any layout, any
+number of lines** -- then press **Enter on a blank line**. It solves it and
+prints the plaintext:
 
 ```
-load message.txt          (the path to your ciphertext file)
-analyse                   what does it look like?
-auto fast                 try everything cheap
-help                      every command
-quit                      leave
+  Paste your ciphertext below, then press Enter on a BLANK line.
+
+WKHUH LVQRW KLQJV RIDWD OWRFK
+DUDFW HUDVK DOIIL QLVKH GWDVN
+
+  Read 50 letters. Working...
+
+========================================================================
+BEST ANSWER  (scores as clear English)
+========================================================================
+
+  THEREISNOTHINGSOFATALTOCHARACTERASHALFFINISHEDTASK
+
+------------------------------------------------------------------------
+  Cipher      : Caesar shift
+  Key         : shift=3
+  Confidence  : strong  (a heuristic, not a verdict)
+  Words found : THERE, NOTHING, THINGS, FINISHED
+  Agreed by   : Caesar shift, Affine, Vigenere
+
+  READ IT BEFORE YOU SUBMIT IT. This is the best-scoring guess, not a
+  proven answer.
+```
+
+Then choose:
+
+```
+[Enter] try harder      [a] all candidates      [w] why (full statistics)
+[s] full command shell  [n] new message         [q] quit
+```
+
+Press Enter and it searches harder (`fast` to `normal` to `deep`). Press
+`s` for the command shell when you want to drive it yourself.
+
+**If it cannot solve your message it says so**, rather than dressing up its
+best guess as an answer:
+
+```
+BEST ANSWER  (WEAK -- this is probably NOT the plaintext)
+  ...
+  This did not score like English. Try 'normal' or 'deep', or check the
+  transcription.
 ```
 
 **On a Mac**, the very first time, macOS will refuse to open a downloaded
@@ -97,7 +136,7 @@ cipher_tool analyse message.txt
 python run_tests.py
 ```
 
-You should see roughly 1,093 tests pass in about two minutes.
+You should see roughly 1,159 tests pass in about two minutes.
 
 ---
 

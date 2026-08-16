@@ -53,7 +53,13 @@ from . import (
     vigenere,
 )
 from .candidates import Candidate, CandidateSet, render_candidates
-from .normalize import group_text, normalize, NormalizedText
+from .normalize import (
+    ALPHABET_SIZE,
+    group_text,
+    normalize,
+    strip_bom,
+    NormalizedText,
+)
 from .scoring import annotate, default_scorer
 from .statistics import analyse, render_report
 
@@ -78,7 +84,7 @@ def read_source(args: argparse.Namespace) -> tuple[str, str | None]:
     a typo into a confusing solve of the filename.
     """
     if getattr(args, "text", None):
-        return args.text, None
+        return strip_bom(args.text), None
 
     target = getattr(args, "input", None)
     if target in (None, ""):
@@ -87,8 +93,18 @@ def read_source(args: argparse.Namespace) -> tuple[str, str | None]:
             "or - to read standard input."
         )
     if target == "-":
-        return sys.stdin.read(), None
+        return strip_bom(sys.stdin.read()), None
 
+    return read_file(target)
+
+
+def read_file(target: str) -> tuple[str, str]:
+    """Read a ciphertext file, reporting every failure as an ``InputError``.
+
+    Read as ``utf-8-sig`` because "UTF-8" in Notepad's Save As dialog writes a
+    byte-order mark, so BOM-prefixed files are the common case rather than the
+    exotic one; ``utf-8-sig`` also decodes plain UTF-8 unchanged.
+    """
     path = Path(target)
     if not path.exists():
         raise InputError(
@@ -99,12 +115,17 @@ def read_source(args: argparse.Namespace) -> tuple[str, str | None]:
     if path.is_dir():
         raise InputError(f"{target} is a directory, not a ciphertext file.")
     try:
-        return path.read_text(encoding="utf-8"), str(path)
+        return strip_bom(path.read_text(encoding="utf-8-sig")), str(path)
     except UnicodeDecodeError as error:
         raise InputError(
             f"{target} is not readable as UTF-8 text ({error}). "
             "If it is a binary file, this toolkit cannot read it."
         ) from error
+    except OSError as error:
+        # Unreadable for any other reason -- permissions, a broken link, a
+        # device file. The user can act on the message; they cannot act on a
+        # traceback from deep inside pathlib.
+        raise InputError(f"Could not read {target}: {error}") from error
 
 
 def emit(text: str, args: argparse.Namespace) -> None:
@@ -184,6 +205,52 @@ def single_candidate(
 # ---------------------------------------------------------------------------
 
 
+def positive_count(value: str) -> int:
+    """argparse type for counts such as ``--top``: at least one.
+
+    ``--top 0`` used to reach the renderer, which treats a non-positive limit
+    as "no limit" and printed every candidate -- so asking for none returned
+    the maximum. Refusing the value at the boundary is the only reading that
+    cannot mislead.
+    """
+    try:
+        count = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"{value!r} is not a whole number"
+        ) from None
+    if count < 1:
+        raise argparse.ArgumentTypeError(
+            f"must be at least 1, got {count}. There is no way to show "
+            "fewer than one candidate."
+        )
+    return count
+
+
+def positive_seconds(value: str) -> float:
+    """argparse type for ``--max-time``: a deadline must leave time to work.
+
+    The solvers disagree about a zero budget -- some raise, some ignore it,
+    some return nothing -- so the value is rejected here, at the one place
+    that sees every command. A budget of zero cannot produce a search anyone
+    would want, and the CLI is where user input is checked.
+    """
+    try:
+        seconds = float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"{value!r} is not a number of seconds"
+        ) from None
+    # Written as `not (> 0)` rather than `<= 0` so that NaN, which compares
+    # false against everything, is rejected instead of slipping through.
+    if not seconds > 0:
+        raise argparse.ArgumentTypeError(
+            f"must be greater than zero seconds, got {value}. Omit "
+            "--max-time to search without a deadline."
+        )
+    return seconds
+
+
 def add_input_arguments(parser: argparse.ArgumentParser) -> None:
     """The ciphertext source, shared by nearly every command."""
     parser.add_argument("input", nargs="?",
@@ -194,7 +261,7 @@ def add_input_arguments(parser: argparse.ArgumentParser) -> None:
 
 def add_output_arguments(parser: argparse.ArgumentParser) -> None:
     """Output shaping, shared by every command that produces a report."""
-    parser.add_argument("--top", type=int, default=5, metavar="N",
+    parser.add_argument("--top", type=positive_count, default=5, metavar="N",
                         help="how many candidates to show (default 5)")
     parser.add_argument("--full", action="store_true",
                         help="print whole plaintexts instead of a preview")
@@ -208,8 +275,8 @@ def add_search_arguments(parser: argparse.ArgumentParser) -> None:
     """Controls for how hard and how long a search may work."""
     parser.add_argument("--seed", type=int, default=None, metavar="N",
                         help="random seed, to make a search reproducible")
-    parser.add_argument("--max-time", type=float, default=None, metavar="S",
-                        dest="max_time",
+    parser.add_argument("--max-time", type=positive_seconds, default=None,
+                        metavar="S", dest="max_time",
                         help="stop searching after this many seconds")
 
 
@@ -271,15 +338,14 @@ def command_caesar(args: argparse.Namespace) -> int:
     text, _ = read_source(args)
     normalized = normalize(text)
     if args.shift is not None:
+        label = _shift_label(args.shift)
         if args.encrypt:
             result = caesar.encrypt(normalized.letters, args.shift)
-            emit(_encrypted_report("Caesar", f"shift={args.shift}", result,
-                                   args), args)
+            emit(_encrypted_report("Caesar", label, result, args), args)
         else:
             plaintext = caesar.decrypt(normalized.letters, args.shift)
             show_candidates(
-                single_candidate("Caesar", f"shift={args.shift}", plaintext,
-                                 normalized),
+                single_candidate("Caesar", label, plaintext, normalized),
                 args, "Caesar with the shift you supplied")
         finish(args)
         return 0
@@ -674,6 +740,23 @@ def command_playfair(args: argparse.Namespace) -> int:
     text, _ = read_source(args)
     normalized = normalize(text)
 
+    # The filler only matters when enciphering: it is what separates a
+    # doubled pair. Accepting it on a decrypt or a search and then ignoring
+    # it told the user their setting had been applied when it had not, so
+    # both halves of that are now errors.
+    if args.filler != playfair.DEFAULT_FILLER:
+        try:
+            playfair.check_filler(args.filler)
+        except ValueError as error:
+            raise InputError(str(error)) from error
+        if not args.encrypt:
+            raise InputError(
+                "--filler only affects encryption, where it separates a "
+                "doubled pair. Decryption cannot know which letters were "
+                "inserted, so the setting would have no effect here. Drop "
+                "--filler, or add --encrypt if you meant to encipher."
+            )
+
     if args.check:
         # Formatting validation barely depends on which square was used --
         # only on which letter the square omits -- so an unkeyed square is
@@ -708,8 +791,15 @@ def command_playfair(args: argparse.Namespace) -> int:
         finish(args)
         return 0
 
-    found = playfair.solve(normalized, top=args.top, restarts=args.restarts,
-                           seed=args.seed, time_budget=args.max_time)
+    # The search rejects a ciphertext no standard Playfair square could have
+    # produced -- an odd letter count, or one using both J and Q. That is a
+    # real and useful negative finding, so it must reach the operator as an
+    # explanation rather than as a traceback.
+    try:
+        found = playfair.solve(normalized, top=args.top, restarts=args.restarts,
+                               seed=args.seed, time_budget=args.max_time)
+    except ValueError as error:
+        raise InputError(str(error)) from error
     show_candidates(found, args, "Playfair")
     finish(args)
     return 0
@@ -782,8 +872,12 @@ def command_crib(args: argparse.Namespace) -> int:
     text, path = read_source(args)
     words = list(args.crib)
     # `crib` takes an optional file positional AND one or more crib
-    # positionals, so with --text the first crib word lands in `input`
-    # instead. Rescue it rather than reporting a confusing "no crib given".
+    # positionals, and argparse fills the file slot first, so
+    # `crib "THE" --text ...` leaves THE in `input`. When --text was given,
+    # `input` cannot be the ciphertext source -- read_source never looks at
+    # it -- so the word there is a crib. That is a deduction from which
+    # source was used, not a guess about what the word looks like; the shell
+    # keeps its side of the bargain by never setting both at once.
     if getattr(args, "text", None) and args.input and not words:
         words = [args.input]
         path = None
@@ -859,9 +953,28 @@ def command_shell(args: argparse.Namespace) -> int:
     return run_shell(args)
 
 
+def command_paste(args: argparse.Namespace) -> int:
+    """Paste a ciphertext and get the plaintext back. The simplest way in."""
+    return run_paste_session(args)
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _shift_label(shift: int) -> str:
+    """Describe a Caesar shift, naming the shift actually used.
+
+    There are only 26 shifts, so ``--shift 99`` is really ``--shift 21`` and
+    ``--shift -3`` is really ``--shift 23``. Labelling the candidate with the
+    number the user typed would report a key that was not the key applied,
+    which is exactly the kind of quiet mismatch this toolkit must not make.
+    """
+    effective = shift % ALPHABET_SIZE
+    if effective == shift:
+        return f"shift={shift}"
+    return f"shift={shift} (only 26 shifts exist, so this is shift={effective})"
 
 
 def _encrypted_report(method: str, key: str, ciphertext: str,
@@ -943,6 +1056,201 @@ The loaded ciphertext is reused, so you do not retype it.
 """
 
 
+#: Commands that take a positional operand of their own, in addition to the
+#: file positional every command shares. In the shell the ciphertext is
+#: already loaded, so a bare word on the line belongs to the command, not to
+#: the file slot argparse would otherwise put it in.
+SHELL_OPERANDS = {"crib": "crib"}
+
+
+def read_pasted_ciphertext(prompt: str | None = None) -> str:
+    """Read a ciphertext pasted over several lines, ending at a blank line.
+
+    Competition ciphertext arrives as a block of five-letter groups spread
+    over several lines, and a person's first instinct is to paste the whole
+    block in one go. A line-at-a-time prompt reads each of those lines as a
+    separate command and reports a string of errors, which is a miserable
+    way to meet a tool. So this reads until a blank line (or end of input)
+    and treats everything before it as one message.
+    """
+    if prompt:
+        print(prompt)
+    lines: list[str] = []
+    while True:
+        try:
+            line = input()
+        except (EOFError, KeyboardInterrupt):
+            break
+        if not line.strip():
+            if lines:
+                break
+            continue  # leading blank lines are just the user pressing Enter
+        # Someone who opens this by mistake will type 'q' to get out, and
+        # would otherwise find it solemnly analysed as a one-letter cipher.
+        # Only honoured as the very first thing typed, so a ciphertext that
+        # genuinely begins with a lone Q on its own line is unaffected.
+        if not lines and line.strip().lower() in {"q", "quit", "exit"}:
+            return ""
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def _render_answer(result: "auto_module.AutoResult", *, width: int = 60) -> str:
+    """Show the best candidate as an answer a person can read and copy.
+
+    Deliberately puts the plaintext first and large, then the evidence, then
+    the caveat. The caveat is never dropped: this is the best guess, not a
+    verdict, and the wording says so whatever the score.
+    """
+    best = result.candidates.best()
+    lines: list[str] = ["", "=" * 72]
+
+    if best is None:
+        lines.append("NO ANSWER FOUND")
+        lines.append("=" * 72)
+        lines.append(
+            "Nothing was produced at all. Check the text pasted in was the "
+            "ciphertext, and try 'deep' for a longer search."
+        )
+        return "\n".join(lines)
+
+    if result.candidates.looks_unencrypted():
+        lines.append("THIS TEXT DOES NOT APPEAR TO BE ENCRYPTED")
+        lines.append("=" * 72)
+        lines.append(
+            "What came back is exactly what went in, so no cipher was "
+            "undone. Either this is already the plaintext, or only part of "
+            "the message was pasted."
+        )
+        return "\n".join(lines)
+
+    confidence = best.confidence()
+    if confidence == "strong":
+        heading = "BEST ANSWER  (scores as clear English)"
+    elif confidence == "promising":
+        heading = "BEST ANSWER  (partly readable -- check it carefully)"
+    else:
+        heading = "BEST ANSWER  (WEAK -- this is probably NOT the plaintext)"
+    lines.append(heading)
+    lines.append("=" * 72)
+    lines.append("")
+
+    # Show the plaintext as one continuous run of letters, NOT poured back
+    # into the ciphertext's own spacing. Competition ciphertext comes in
+    # five-letter groups that have nothing to do with words, and reproducing
+    # them here gives "ISNOT HINGS", which looks like a bad decryption when
+    # it is a perfect one. Continuous letters are also what gets submitted.
+    body = best.plaintext
+    for start in range(0, len(body), width):
+        lines.append("  " + body[start : start + width])
+
+    lines.append("")
+    lines.append("-" * 72)
+    lines.append(f"  Cipher      : {best.method}")
+    lines.append(f"  Key         : {best.key}")
+    lines.append(f"  Confidence  : {confidence}  (a heuristic, not a verdict)")
+    words = best.diagnostics.get("words_seen")
+    if words:
+        lines.append(f"  Words found : {words}")
+
+    agreeing = result.candidates.corroborations()
+    if len(agreeing) > 1:
+        lines.append(f"  Agreed by   : {', '.join(agreeing)}")
+
+    gap = result.candidates.score_gap()
+    if gap is not None and gap < 0.10:
+        lines.append("")
+        lines.append(
+            f"  WARNING: the next different reading is only {gap:.3f} per "
+            "letter behind. The search has not singled this one out."
+        )
+
+    lines.append("")
+    if confidence in {"weak", "unlikely"}:
+        lines.append(
+            "  This did not score like English. Try 'normal' or 'deep', or "
+            "check the transcription."
+        )
+    else:
+        lines.append(
+            "  READ IT BEFORE YOU SUBMIT IT. This is the best-scoring guess, "
+            "not a proven answer."
+        )
+    return "\n".join(lines)
+
+
+def run_paste_session(args: argparse.Namespace) -> int:
+    """Paste a ciphertext, get the best plaintext. The double-click flow.
+
+    Everything else in this toolkit is built for someone who already knows
+    which attack they want. This is for the first thirty seconds: paste the
+    message, see the answer, and only then decide whether to dig in.
+    """
+    print()
+    print("=" * 72)
+    print(f"  {PROGRAM} {__version__}  --  paste a message, get the plaintext")
+    print("=" * 72)
+
+    text = read_pasted_ciphertext(
+        "\n  Paste your ciphertext below (any layout -- five-letter groups\n"
+        "  and line breaks are fine), then press Enter on a BLANK line.\n"
+    )
+    normalized = normalize(text)
+    if normalized.is_empty:
+        print("\n  No letters were pasted, so there is nothing to work on.")
+        print("  Run it again and paste the ciphertext when prompted.")
+        return 1
+
+    letters = normalized.length
+    print(f"\n  Read {letters} letter{'' if letters == 1 else 's'}. "
+          "Working...")
+
+    effort = "fast"
+    while True:
+        result = auto_module.auto_solve(
+            normalized, effort=effort, top=max(args.top, 5), seed=args.seed,
+            max_time=args.max_time,
+        )
+        print(_render_answer(result))
+        print()
+        print("-" * 72)
+        print("  [Enter] try harder      [a] all candidates      [w] why")
+        print("  [s] full command shell  [n] new message         [q] quit")
+        try:
+            choice = input("  > ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return 0
+
+        if choice in {"q", "quit", "exit"}:
+            return 0
+        if choice in {"a", "all"}:
+            print(render_candidates(result.candidates.ranked(), top=10,
+                                    full_text=True, title="Every candidate"))
+            continue
+        if choice in {"w", "why"}:
+            print(render_report(result.stats))
+            continue
+        if choice in {"s", "shell"}:
+            args.text = text
+            args.input = None
+            return run_shell(args)
+        if choice in {"n", "new"}:
+            return run_paste_session(args)
+
+        # Anything else, including a bare Enter, means "search harder".
+        if effort == "fast":
+            effort = "normal"
+        elif effort == "normal":
+            effort = "deep"
+        else:
+            print("\n  Already searched as hard as this tool goes. A crib "
+                  "from the story is worth more than more search: try "
+                  "[s] and then  crib THE")
+            continue
+        print(f"\n  Searching harder ({effort})... this takes longer.")
+
+
 def run_shell(args: argparse.Namespace) -> int:
     """A small REPL for working one ciphertext over several commands."""
     print(f"{PROGRAM} {__version__} interactive shell. Type 'help' or 'quit'.")
@@ -966,65 +1274,146 @@ def run_shell(args: argparse.Namespace) -> int:
             break
         if not line:
             continue
-
-        word, _, rest = line.partition(" ")
-        word = word.lower()
-
-        if word in {"quit", "exit", "q"}:
-            break
-        if word in {"help", "?"}:
-            print(SHELL_HELP.format(top=state["top"]))
-            continue
-        if word == "load":
-            path = Path(rest.strip().strip('"'))
-            if not path.exists():
-                print(f"error: no such file: {path}")
-                continue
-            state["text"] = path.read_text(encoding="utf-8")
-            state["path"] = str(path)
-            print(f"Loaded {path} ({normalize(state['text']).length} letters).")
-            continue
-        if word == "text":
-            state["text"] = rest
-            state["path"] = None
-            print(f"Loaded {normalize(rest).length} letters.")
-            continue
-        if word == "top":
-            try:
-                state["top"] = max(1, int(rest))
-                print(f"Showing up to {state['top']} candidates.")
-            except ValueError:
-                print("error: top needs a number, e.g. 'top 10'")
-            continue
-
-        if state["text"] is None:
-            print("error: nothing loaded. Use 'load <file>' or 'text <...>'.")
-            continue
-
-        # Re-use the real parser so the shell and the command line behave
-        # identically -- one implementation, not two.
-        tokens = [word] + _split_arguments(rest)
-        if word == "auto" and rest.strip() in {"fast", "normal", "deep"}:
-            tokens = ["auto", f"--{rest.strip()}"]
+        # Nothing typed at this prompt may end the session. A missing file, a
+        # nonsense option or a solver raising deep inside itself all cost the
+        # user one line, never the ciphertext they loaded and the work they
+        # have done since. The catch-all sits here rather than around the
+        # handler alone so that the built-in commands are covered too.
         try:
-            parsed = parser.parse_args(tokens)
-        except SystemExit:
-            print("error: could not read that command. Type 'help'.")
-            continue
-
-        parsed.text = state["text"]
-        parsed.input = state["path"]
-        parsed.top = state["top"]
-        parsed.quiet = True
-        try:
-            parsed.handler(parsed)
+            if not _run_shell_line(line, state, parser):
+                break
         except InputError as error:
             print(f"error: {error}")
         except Exception as error:  # keep the shell alive
-            print(f"error: {type(error).__name__}: {error}")
+            print(f"error: {_error_message(error)}")
 
     print("Bye.")
     return 0
+
+
+def _run_shell_line(line: str, state: dict[str, Any],
+                    parser: argparse.ArgumentParser) -> bool:
+    """Run one line typed at the shell prompt.
+
+    Returns ``False`` when the user asked to leave, ``True`` to keep going.
+    Raises :class:`InputError` (or anything a solver raises) for the caller
+    to report; it must not print a bare traceback of its own.
+    """
+    word, _, rest = line.partition(" ")
+    word = word.lower()
+
+    if word in {"quit", "exit", "q"}:
+        return False
+    if word in {"help", "?"}:
+        print(SHELL_HELP.format(top=state["top"]))
+        return True
+    if word == "load":
+        text, path = read_file(_shell_load_target(rest))
+        state["text"], state["path"] = text, path
+        print(f"Loaded {path} ({normalize(text).length} letters).")
+        return True
+    if word == "text":
+        state["text"] = strip_bom(rest)
+        state["path"] = None
+        print(f"Loaded {normalize(state['text']).length} letters.")
+        return True
+    if word == "top":
+        try:
+            state["top"] = positive_count(rest.strip())
+        except argparse.ArgumentTypeError as error:
+            raise InputError(f"top: {error} (e.g. 'top 10')") from error
+        print(f"Showing up to {state['top']} candidates.")
+        return True
+
+    # An unknown word is an unknown word whether or not a ciphertext is
+    # loaded, so say so before complaining about the ciphertext: reporting
+    # "nothing loaded" for a typo sends the user off to load a file that
+    # would not have helped.
+    if word not in parser.command_names:
+        print(f"error: unknown command {word!r}. Type 'help' for the list.")
+        return True
+
+    if state["text"] is None:
+        print("error: nothing loaded. Use 'load <file>' or 'text <...>'.")
+        return True
+
+    # Re-use the real parser so the shell and the command line behave
+    # identically -- one implementation, not two.
+    tokens = [word] + _split_arguments(rest)
+    if word == "auto" and rest.strip() in {"fast", "normal", "deep"}:
+        tokens = ["auto", f"--{rest.strip()}"]
+    try:
+        parsed = parser.parse_args(tokens)
+    except SystemExit:
+        # argparse has already printed what was wrong with the line.
+        print("error: could not read that command. Type 'help'.")
+        return True
+
+    if _point_at_loaded_text(parsed, state):
+        parsed.handler(parsed)
+    return True
+
+
+def _shell_load_target(rest: str) -> str:
+    """Read the filename from a ``load`` line, rejecting an empty one.
+
+    ``Path("")`` resolves to the current directory, which exists, so a bare
+    ``load`` used to fall through every check and try to read the directory
+    itself -- taking the whole session down with a PermissionError.
+    """
+    target = rest.strip().strip('"')
+    if not target:
+        raise InputError(
+            "load needs a filename, e.g. 'load message.txt'. To type a "
+            "ciphertext instead, use 'text <ciphertext>'."
+        )
+    return target
+
+
+def _point_at_loaded_text(parsed: argparse.Namespace,
+                          state: dict[str, Any]) -> bool:
+    """Aim a parsed shell command at the ciphertext the session holds.
+
+    Returns ``False`` when the line carried a word the command cannot use, in
+    which case it has been reported and the command must not run.
+
+    Every command shares an optional file positional and argparse fills it
+    first, so in the shell ``crib THE`` put THE in the *file* slot and left no
+    crib at all -- which is how the crib test came to be run against the
+    filename, printing confident verdicts about a crib nobody typed. The
+    routing is decided here, where we know the ciphertext is already loaded
+    and therefore that a bare word cannot be naming a file.
+    """
+    operand = getattr(parsed, "input", None)
+    # The session's text is supplied directly, so `input` must be cleared:
+    # leaving a path there alongside `text` is a state the command line can
+    # never produce, and commands are entitled to assume it cannot happen.
+    parsed.input = None
+    if operand is not None:
+        destination = SHELL_OPERANDS.get(parsed.command)
+        if destination is None:
+            print(f"error: '{operand}' is not an argument of "
+                  f"'{parsed.command}'. The shell already has a ciphertext "
+                  "loaded -- use 'load <file>' to change it.")
+            return False
+        setattr(parsed, destination,
+                [operand] + list(getattr(parsed, destination)))
+    parsed.text = state["text"]
+    parsed.top = state["top"]
+    parsed.quiet = True
+    return True
+
+
+def _error_message(error: BaseException) -> str:
+    """The exception's message alone, without its class name.
+
+    ``error: ValueError: Vigenere key '123' contains no letters`` reads as a
+    crash report; the message on its own is the part the user can act on. An
+    exception carrying no message would then print nothing at all, so the
+    class name is used only in that case.
+    """
+    message = str(error).strip()
+    return message or f"{type(error).__name__} (no further detail)"
 
 
 def _split_arguments(text: str) -> list[str]:
@@ -1295,6 +1684,19 @@ def build_parser() -> argparse.ArgumentParser:
     add_output_arguments(shell_parser)
     add_search_arguments(shell_parser)
     shell_parser.set_defaults(handler=command_shell, group=5)
+
+    paste_parser = subparsers.add_parser(
+        "paste",
+        help="paste a ciphertext and get the plaintext (the simplest way in)")
+    add_output_arguments(paste_parser)
+    add_search_arguments(paste_parser)
+    paste_parser.set_defaults(handler=command_paste, group=5, input=None,
+                              text=None)
+
+    # The shell has to tell "unknown command" from "known command, bad
+    # options", and argparse exposes the registered names (aliases included)
+    # only through the subparsers action, so record them while we hold it.
+    parser.command_names = frozenset(subparsers.choices)
 
     return parser
 

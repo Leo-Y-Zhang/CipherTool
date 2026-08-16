@@ -157,6 +157,23 @@ class AutoResult:
             title="Ranked candidates",
         ))
 
+        if self.candidates.looks_unencrypted():
+            lines.append("")
+            lines.append("=" * 72)
+            lines.append("THIS TEXT DOES NOT APPEAR TO BE ENCRYPTED")
+            lines.append("=" * 72)
+            lines.append(
+                "The best-scoring result handed the input straight back. "
+                "Every cipher family here has a key that does nothing -- "
+                "Caesar shift 0, Vigenere key AAA, affine a=1 b=0 -- and on "
+                "readable English each solver finds its own. That is not a "
+                "solve, and the keys below should not be reported as one."
+            )
+            lines.append(
+                "Either this is already the plaintext, or only part of the "
+                "message was pasted in."
+            )
+
         agreeing = self.candidates.corroborations()
         if len(agreeing) > 1:
             lines.append("")
@@ -361,7 +378,9 @@ def auto_solve(
     result = AutoResult(
         normalized=normalized,
         stats=stats,
-        candidates=CandidateSet(),
+        # Telling the candidate set what the ciphertext was lets it recognise
+        # a "decryption" that handed the input straight back.
+        candidates=CandidateSet(source_letters=normalized.letters),
         effort=effort,
         time_budget=max_time,
     )
