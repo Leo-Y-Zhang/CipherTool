@@ -46,8 +46,14 @@ jobs:
           printf 'WKHUH LVQRW KLQJV RIDWD OWRFK DUDFW HUDVK DOIIL QLVKH GWDVN\n' > message.txt
           python -m cipher_tool analyse message.txt
           python -m cipher_tool auto message.txt --fast --top 3 | tee out.txt
-          grep -q "THEREISNOTHINGSOFATAL" out.txt \
-            || { echo "the pipeline failed to solve a plain Caesar"; exit 1; }
+          # Strip whitespace before matching. The report deliberately prints
+          # the plaintext in the SAME layout as the input, so a five-letter
+          # grouped ciphertext yields "THERE ISNOT HINGS..." rather than one
+          # run of letters. Matching the unspaced form would be testing the
+          # formatting, not the solve.
+          tr -d ' \n' < out.txt | grep -q 'THEREISNOTHINGSOFATALTOCHARACTER' \
+            || { echo "FAILED: the pipeline did not solve a plain Caesar"; \
+                 cat out.txt; exit 1; }
 
   packaging:
     name: installs cleanly with no dependencies
