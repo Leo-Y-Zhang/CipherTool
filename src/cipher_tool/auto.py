@@ -232,7 +232,16 @@ def build_stages(effort: str, top: int, seed: int | None) -> list[Stage]:
     max_primer = (3, 5, 8)[scale]
     max_period = (8, 15, 20)[scale]
     playfair_restarts = (0, 0, 8)[scale]
-    columnar_max = (6, 8, 9)[scale]
+    # Every key length up to 9 is searched even at --fast. Columnar keys of
+    # seven to nine letters are ordinary in this competition, and since
+    # columnar.DEFAULT_MAX_EXHAUSTIVE enumerates up to 9 the cost is small.
+    # MEASURED on 300-letter messages with keys of 6, 7, 8 and 9 columns: a
+    # ceiling of 6 solved one of the four in 0.34s, a ceiling of 9 solved all
+    # four in 1.74s. Roughly a third of a second per message to stop missing
+    # three quarters of real columnar keys is not a trade worth making.
+    # Beyond 9 the search falls back to the greedy chain, which is markedly
+    # weaker, so only --deep goes there and its candidates say so.
+    columnar_max = (9, 9, 12)[scale]
 
     stages: list[Stage] = [
         Stage("encodings", "encoding", "fast", 0.2, encodings.solve,
