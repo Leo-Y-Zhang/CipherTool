@@ -1,0 +1,22 @@
+# Line endings are load-bearing here.
+#
+# A shell script checked out with CRLF fails on Mac and Linux with the
+# baffling error "bad interpreter: /usr/bin/env bash^M", so the launchers are
+# pinned to LF regardless of the platform or the user's core.autocrlf
+# setting. The Windows batch file is pinned to CRLF for the same reason in
+# reverse: cmd.exe mishandles a .bat file with bare LF line endings.
+
+* text=auto eol=lf
+
+*.sh        text eol=lf
+*.command   text eol=lf
+*.py        text eol=lf
+*.md        text eol=lf
+*.yml       text eol=lf
+*.toml      text eol=lf
+
+*.bat       text eol=crlf
+
+# The prose corpus is the training text for the language model. Keep it
+# plain and diffable.
+src/cipher_tool/data/*.txt text eol=lf
