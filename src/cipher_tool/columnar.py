@@ -696,7 +696,7 @@ def _propose_orders(
     budget_hit = False
 
     for pattern in patterns:
-        if deadline is not None and time.monotonic() > deadline:
+        if deadline is not None and time.monotonic() >= deadline:
             budget_hit = True
             break
         tried += 1
@@ -728,7 +728,7 @@ def _propose_orders(
                         heapq.heappushpop(shortlist, entry)
                     checked += 1
                     if deadline is not None and not checked & 0x3FF:
-                        if time.monotonic() > deadline:
+                        if time.monotonic() >= deadline:
                             budget_hit = True
                             break
                 if budget_hit:
@@ -862,7 +862,7 @@ def solve(
         if count >= length or grid_rows(length, count) < 2:
             grids.append(f"{count} columns: skipped, fewer than 2 rows")
             continue
-        if deadline is not None and time.monotonic() > deadline:
+        if deadline is not None and time.monotonic() >= deadline:
             budget_hit = True
             break
 

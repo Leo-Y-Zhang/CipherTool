@@ -361,7 +361,7 @@ def _hill_climb(
         improved = False
         sweeps += 1
         for position in range(len(current)):
-            if deadline is not None and time.monotonic() > deadline:
+            if deadline is not None and time.monotonic() >= deadline:
                 return current, best_score, sweeps, True
             original = current[position]
             best_letter = original
@@ -476,7 +476,7 @@ def solve(
     attempts: list[dict] = []
     for variant_name in wanted:
         for length in lengths:
-            if deadline is not None and time.monotonic() > deadline:
+            if deadline is not None and time.monotonic() >= deadline:
                 budget_hit = True
                 break
             key_values, chi_total, margin = derive_key(letters, length, variant_name)
@@ -500,7 +500,7 @@ def solve(
     if refine and refine_top > 0:
         order = sorted(attempts, key=lambda row: row["score"], reverse=True)
         for row in order[:refine_top]:
-            if deadline is not None and time.monotonic() > deadline:
+            if deadline is not None and time.monotonic() >= deadline:
                 budget_hit = True
                 break
             key_values, score, sweeps, hit = _hill_climb(

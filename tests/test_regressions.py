@@ -9,7 +9,9 @@ quietly disagreeing with the slow, obviously-correct one.
 from __future__ import annotations
 
 import random
+import time
 import unittest
+from unittest import mock
 
 from cipher_tool import bifid, encodings, playfair, polybius, substitution
 from cipher_tool.normalize import ALPHABET, letters_only
@@ -245,6 +247,71 @@ class TestKnownLimitsAreReportedHonestly(unittest.TestCase):
         self.assertIn("X", recovered)
         self.assertEqual(recovered.replace("X", ""),
                          plaintext.replace("X", ""))
+
+
+class TestCoarseClockDoesNotChangeTheAnswer(unittest.TestCase):
+    """A time budget must mean the same thing on every machine.
+
+    Windows resolves ``time.monotonic()`` to about 15.6 milliseconds, so two
+    consecutive calls often return the same number. Two bugs fell out of that
+    and only showed up on the Windows CI runner:
+
+    * deadline checks used ``>`` rather than ``>=``, so a deadline that had
+      exactly arrived was treated as not yet reached;
+    * ``transposition.solve_all`` floored each family's slice at 50ms, which
+      silently overrode a smaller budget the caller had asked for.
+
+    Together they meant a near-zero budget produced a full set of candidates
+    on a coarse clock and none on a fine one -- the same call giving
+    different answers on different laptops. These tests quantise the clock to
+    reproduce that locally.
+    """
+
+    GRANULARITY = 0.016
+
+    def _coarse_clock(self):
+        real = time.monotonic
+
+        def coarse() -> float:
+            return (real() // self.GRANULARITY) * self.GRANULARITY
+
+        return mock.patch("time.monotonic", coarse)
+
+    def test_autokey_zero_budget_searches_nothing(self) -> None:
+        from cipher_tool.autokey import plaintext_autokey_encrypt
+        from cipher_tool.autokey import solve as autokey_solve
+
+        ciphertext = plaintext_autokey_encrypt(sample(420), "KEY")
+        with self._coarse_clock():
+            result = autokey_solve(ciphertext, time_budget=0.0)
+        self.assertEqual(len(result), 0)
+
+    def test_transposition_tiny_budget_searches_nothing(self) -> None:
+        from cipher_tool.transposition import solve_all
+
+        with self._coarse_clock():
+            found = solve_all(sample(200), top=5, time_budget=1e-6)
+        self.assertEqual(len(found), 0)
+
+    def test_a_workable_budget_still_produces_candidates(self) -> None:
+        """The guard must not have turned the budget into a blanket refusal."""
+        from cipher_tool.transposition import solve_all
+
+        with self._coarse_clock():
+            found = solve_all(sample(200), top=3, time_budget=2.0, seed=1)
+        self.assertGreater(len(found), 0)
+
+    def test_skipped_families_are_reported_not_hidden(self) -> None:
+        from cipher_tool.transposition import solve_all
+
+        with self._coarse_clock():
+            found = solve_all(sample(200), top=3, time_budget=0.05, seed=1)
+        # Whatever ran or did not, the caller must be able to find out which.
+        for candidate in found.ranked():
+            self.assertTrue(
+                "families_run" in candidate.diagnostics
+                or "families_skipped_no_time" in candidate.diagnostics
+            )
 
 
 class TestCommandLineApiCalls(unittest.TestCase):

@@ -886,7 +886,7 @@ def solve(
     shapes_tested: list[str] = []
 
     for rows, cols in shapes:
-        if deadline is not None and time.monotonic() > deadline:
+        if deadline is not None and time.monotonic() >= deadline:
             budget_hit = True
             break
         ragged = is_ragged(length, rows, cols)
@@ -993,6 +993,16 @@ def solve(
 #: Relative cost of each family, used to share out a time budget. The columnar
 #: search is by far the most expensive (it searches permutations), the rail
 #: fence by far the cheapest (a few hundred decryptions).
+#: Smallest slice of a time budget worth handing to a solver family.
+#:
+#: Below this the budget cannot be enforced: Windows resolves
+#: ``time.monotonic()`` to roughly 16 milliseconds, so a deadline a
+#: microsecond away may not have "arrived" by the time the solver checks, and
+#: the family would run unbounded. Families whose share falls under this are
+#: skipped and listed in ``families_skipped_no_time``, which is both honest
+#: and identical on every platform.
+MINIMUM_FAMILY_SECONDS = 0.02
+
 _FAMILY_WEIGHTS = {"rail_fence": 0.15, "columnar": 0.55, "routes": 0.30}
 
 
@@ -1050,11 +1060,16 @@ def solve_all(
     max_rails = options.pop("max_rails", None)
     route_options = dict(options)  # everything else belongs to solve()
 
-    # Each family gets at least a moment even if the budget is tiny; a solver
-    # that is handed zero seconds cannot report anything at all, and "we ran
-    # out of time" is more useful when it comes with what was managed.
+    # Each family gets its share of the budget and no more. There was a floor
+    # here (max(0.05, share)), which quietly handed a family fifty
+    # milliseconds even when the caller had asked for a microsecond. A tiny
+    # budget then produced a full set of candidates on a machine whose clock
+    # was too coarse to notice it had already expired, and none on a machine
+    # whose clock was finer -- the same call giving different answers on
+    # different laptops. A budget the caller set is not silently overridden;
+    # a family that cannot be given a workable slice is skipped and reported.
     per_family = {
-        name: (None if time_budget is None else max(0.05, time_budget * weight))
+        name: (None if time_budget is None else time_budget * weight)
         for name, weight in _FAMILY_WEIGHTS.items()
     }
     deadline = None if time_budget is None else time.monotonic() + time_budget
@@ -1066,11 +1081,20 @@ def solve_all(
     budget_hit = False
 
     def remaining(name: str) -> float | None:
-        """Seconds this family may use, or ``None`` for no limit."""
+        """Seconds this family may use, or ``None`` for no limit.
+
+        Returns 0.0 when the slice is too small to be worth starting, which
+        the caller treats as "skip this family and record that it was
+        skipped". The threshold exists because the clock is not infinitely
+        precise: Windows resolves ``time.monotonic()`` to roughly 16
+        milliseconds, so a slice below that cannot be enforced and the family
+        would run to completion regardless of the budget.
+        """
         if deadline is None:
             return None
         left = deadline - time.monotonic()
-        return min(per_family[name], max(0.0, left))
+        share = min(per_family[name], max(0.0, left))
+        return share if share >= MINIMUM_FAMILY_SECONDS else 0.0
 
     rail_options: dict[str, Any] = {"top": per_family_top, "seed": seed}
     if max_rails is not None:

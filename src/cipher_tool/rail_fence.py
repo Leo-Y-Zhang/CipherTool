@@ -259,7 +259,7 @@ def solve(
     rails_tested: list[int] = []
 
     for rails in range(2, highest + 1):
-        if deadline is not None and time.monotonic() > deadline:
+        if deadline is not None and time.monotonic() >= deadline:
             budget_hit = True
             break
         rails_tested.append(rails)

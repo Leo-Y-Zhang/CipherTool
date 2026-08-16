@@ -440,7 +440,7 @@ def _climb_primer(
         improved = False
         sweeps += 1
         for position in range(len(current)):
-            if deadline is not None and time.monotonic() > deadline:
+            if deadline is not None and time.monotonic() >= deadline:
                 return current, best_score, sweeps, True
             original = current[position]
             chosen = original
@@ -480,7 +480,7 @@ def _exhaustive_primer(
         checked += 1
         # Checking the clock on every primer would cost more than the search.
         if deadline is not None and checked % 512 == 0:
-            if time.monotonic() > deadline:
+            if time.monotonic() >= deadline:
                 return None, float("-inf"), True
         score = scorer.score_values(
             _plaintext_prefix(cipher_values, combination, probe)
@@ -555,7 +555,7 @@ def _solve_ciphertext_head(
             improved = False
             # Right to left: settle the letters with the most context first.
             for position in range(head_length - 1, -1, -1):
-                if deadline is not None and time.monotonic() > deadline:
+                if deadline is not None and time.monotonic() >= deadline:
                     return plain, score_now, True
                 original = plain[position]
                 chosen = original
@@ -675,7 +675,7 @@ def solve(
     # -- ciphertext autokey: the tail is forced, so only m is unknown -------
     if CIPHERTEXT in wanted:
         for size in sizes:
-            if deadline is not None and time.monotonic() > deadline:
+            if deadline is not None and time.monotonic() >= deadline:
                 budget_hit = True
                 break
             plain, primer, score, hit = _solve_ciphertext_head(
@@ -700,7 +700,7 @@ def solve(
     if PLAINTEXT in wanted:
         starts: list[dict] = []
         for size in sizes:
-            if deadline is not None and time.monotonic() > deadline:
+            if deadline is not None and time.monotonic() >= deadline:
                 budget_hit = True
                 break
             primer, margins = initial_primer(letters, size)
@@ -739,7 +739,7 @@ def solve(
         # lengths that the first pass already shows to be hopeless.
         ranked = sorted(starts, key=lambda row: row["score"], reverse=True)
         for row in ranked[: max(0, climb_top)]:
-            if deadline is not None and time.monotonic() > deadline:
+            if deadline is not None and time.monotonic() >= deadline:
                 budget_hit = True
                 break
             primer, score, sweeps, hit = _climb_primer(
@@ -752,7 +752,7 @@ def solve(
             row["sweeps"] = sweeps
 
             for _ in range(max(0, restarts)):
-                if deadline is not None and time.monotonic() > deadline:
+                if deadline is not None and time.monotonic() >= deadline:
                     budget_hit = True
                     break
                 seeded = [rng.randrange(ALPHABET_SIZE) for _ in range(row["size"])]
