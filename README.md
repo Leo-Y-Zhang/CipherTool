@@ -512,12 +512,15 @@ Stated plainly, because a tool that hides its weaknesses wastes your time.
   original: doubled letters were split with a filler during encryption, and
   decryption cannot tell an inserted `X` from a written one. Expect to read
   `THE X END` and mentally delete the filler.
-- **Bifid with an unknown keyed square is out of reach.** The solver searches
-  periods against the standard square and against any keywords you supply
-  with `--words`, but it does not search the 25! possible squares. Measured:
-  with the keyword supplied it solves in a fifth of a second; without it, it
-  fails and reports `unlikely` rather than guessing. If you suspect Bifid,
-  feed it candidate keywords from the story via `context`.
+- **Bifid with an unknown keyed square is a search, not a certainty.**
+  `bifid` tries the standard square and any keywords you supply with
+  `--words`, and solves in a fifth of a second when the keyword is right.
+  Without one, `bifid --search-square` hill-climbs the grid itself -- measured,
+  it recovers a keyed square from 400 letters in about seven seconds and from
+  800 in seventeen. But there are 25! squares, so this is a randomised climb
+  that is never exhaustive: finding nothing is not proof there is nothing to
+  find. If the story offers candidate keywords, feeding them in via `context`
+  is still faster and surer than searching.
 - **A ciphertext-autokey primer cannot be recovered from the message.**
   Because the key is primer + ciphertext, everything after the primer's own
   length is forced by the ciphertext alone -- so every primer yields the same

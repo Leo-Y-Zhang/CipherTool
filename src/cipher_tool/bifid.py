@@ -84,16 +84,23 @@ fractionation, using the standard squares and any keyed square the operator
 supplies through ``keywords``, and ranks the results by English score. Every
 period tested is reported in the diagnostics.
 
-Limitation, stated plainly: this solver does not *search* for an unknown
-square. If the grid is a scrambled alphabet with no keyword behind it, the
-periods will all score as noise, and the honest reading of that output is
-"the square is not one of these", not "the text is not Bifid".
+:func:`solve` does not *search* for an unknown square: it tries the squares it
+is handed and no others, so against a keyed grid with no keyword available
+every period scores as noise. The honest reading of that output is "the square
+is not one of these", not "the text is not Bifid" -- and it was a real hole,
+because a competition does not hand over the keyword.
+
+:func:`solve_unknown_square` closes it by hill-climbing the grid itself, the
+same way ``playfair.py`` already climbs its own. See that function for what
+the search does and does not promise.
 """
 
 from __future__ import annotations
 
+import math
+import random
 import time
-from typing import Iterable, Sequence
+from typing import Any, Iterable, Sequence
 
 from .candidates import Candidate, CandidateSet
 from .normalize import NormalizedText, normalize
@@ -379,3 +386,221 @@ def solve(
     if top <= 0:
         return candidates
     return CandidateSet(candidates.top(top))
+
+
+# ---------------------------------------------------------------------------
+# Searching for an unknown square
+# ---------------------------------------------------------------------------
+
+#: The twenty-five cells of a 5x5 square, with J folded into I as usual.
+SQUARE_ALPHABET = "ABCDEFGHIKLMNOPQRSTUVWXYZ"
+
+#: Annealing steps in one restart of the square climb.
+DEFAULT_CLIMB_ITERATIONS = 8_000
+
+#: Restarts per period. The climb has local optima, so one run is a coin
+#: toss; MEASURED, the true square came out of the second restart on both a
+#: 400- and an 800-letter message.
+DEFAULT_CLIMB_RESTARTS = 4
+
+#: Periods kept for a full climb after the cheap screening pass.
+CLIMB_REFINE_PERIODS = 3
+
+#: Starting temperature, in units of the scorer's total log score.
+CLIMB_START_TEMPERATURE = 8.0
+
+METHOD_UNKNOWN_SQUARE = "Bifid (square recovered by search)"
+
+
+def _climb_square(
+    letters: str,
+    period: int,
+    engine: EnglishScorer,
+    generator: random.Random,
+    iterations: int,
+    deadline: float | None,
+) -> tuple[float, str]:
+    """One annealing run over the twenty-five cells, for a fixed period.
+
+    Annealing rather than a greedy climb for the usual reason: swapping two
+    cells of a nearly-right square usually scores worse before it scores
+    better, so a hill climb stalls almost at once. Accepting a worse square
+    early, with a probability that falls as the run proceeds, is what gets
+    past that.
+    """
+    cells = list(SQUARE_ALPHABET)
+    generator.shuffle(cells)
+
+    def score_of() -> float:
+        try:
+            return engine.score(decrypt(letters, PolybiusSquare("".join(cells)),
+                                        period))
+        except ValueError:
+            # A square or period the decryption refuses is simply a bad
+            # candidate, not an error worth stopping the search for.
+            return float("-inf")
+
+    current = score_of()
+    best, best_cells = current, list(cells)
+
+    for step in range(iterations):
+        if deadline is not None and step % 128 == 0 and time.monotonic() > deadline:
+            break
+        first = generator.randrange(25)
+        second = generator.randrange(25)
+        if first == second:
+            continue
+        cells[first], cells[second] = cells[second], cells[first]
+        candidate = score_of()
+        delta = candidate - current
+        temperature = (
+            CLIMB_START_TEMPERATURE * (1.0 - step / iterations) + 0.01
+        )
+        if delta >= 0 or generator.random() < math.exp(delta / temperature):
+            current = candidate
+            if candidate > best:
+                best, best_cells = candidate, list(cells)
+        else:
+            cells[first], cells[second] = cells[second], cells[first]
+
+    return best, "".join(best_cells)
+
+
+def solve_unknown_square(
+    source: str | NormalizedText,
+    *,
+    scorer: EnglishScorer | None = None,
+    top: int = 5,
+    **options: Any,
+) -> CandidateSet:
+    """Recover a keyed Bifid square nobody supplied. Ranked candidates only.
+
+    :func:`solve` tries the squares it is given; this searches for one. The
+    grid is hill-climbed cell by cell against the English score of the
+    resulting decryption, which is exactly how `playfair.py` recovers its own
+    square, and it works for the same reason: a square that is nearly right
+    decrypts into nearly-English, so the score slopes towards the answer.
+
+    **Never exhaustive, and it does not pretend to be.** There are 25!
+    squares -- more than a billion billion billion -- so a run that finds
+    nothing is not evidence that there is nothing to find. Every candidate
+    says so in its diagnostics.
+
+    Options
+    -------
+    period:
+        Attack this period only.
+    max_period:
+        Otherwise screen every period from 1 up to this
+        (default :data:`DEFAULT_MAX_PERIOD`).
+    restarts, iterations:
+        Restarts per period, and annealing steps per restart.
+    seed:
+        Makes a run reproducible.
+    time_budget:
+        Seconds. The search stops cleanly and records ``time_budget_hit``.
+    """
+    engine = scorer if scorer is not None else default_scorer()
+    normalized = normalize(source) if isinstance(source, str) else source
+    letters = normalized.letters
+
+    results = CandidateSet(source_letters=letters)
+    if len(letters) < 20:
+        return results
+
+    period = options.pop("period", None)
+    max_period = int(options.pop("max_period", DEFAULT_MAX_PERIOD))
+    restarts = int(options.pop("restarts", DEFAULT_CLIMB_RESTARTS))
+    iterations = int(options.pop("iterations", DEFAULT_CLIMB_ITERATIONS))
+    seed = options.pop("seed", None)
+    time_budget = options.pop("time_budget", None)
+    if options:
+        raise ValueError(
+            f"unknown option(s) for the Bifid square search: "
+            f"{', '.join(sorted(str(name) for name in options))}"
+        )
+
+    generator = random.Random(seed)
+    deadline = (time.monotonic() + float(time_budget)
+                if time_budget is not None else None)
+    budget_hit = False
+
+    periods = ([int(period)] if period is not None
+               else list(range(1, max_period + 1)))
+
+    # Screen the periods cheaply before spending the real effort on any of
+    # them, for the same reason the double-columnar search does: a wrong
+    # period cannot decrypt into English however long its square is climbed,
+    # so a short run separates it from the right one well enough to rank.
+    if len(periods) > 1:
+        # The screen has to be long enough for the RIGHT period to start
+        # looking like English, which is the difference between this and the
+        # double-columnar screen: there, a wrong shape can never produce
+        # English at any length, so a very short run separates them. Here
+        # even the correct period needs a real climb before its score moves.
+        # MEASURED on 500 letters at period 7, screening periods 1 to 9:
+        # 1,000 steps ranked the true period SIXTH -- worse than useless --
+        # while 3,000 ranked it second and 6,000 first. Second is enough,
+        # since the shortlist keeps three.
+        screen_iterations = max(3_000, iterations // 3)
+        scored: list[tuple[float, int]] = []
+        for value in periods:
+            if deadline is not None and time.monotonic() > deadline:
+                budget_hit = True
+                break
+            best_seen, _cells = _climb_square(
+                letters, value, engine, generator, screen_iterations, deadline,
+            )
+            scored.append((best_seen, value))
+        scored.sort(key=lambda item: item[0], reverse=True)
+        periods = [value for _score, value in scored[:CLIMB_REFINE_PERIODS]]
+
+    for value in periods:
+        if deadline is not None and time.monotonic() > deadline:
+            budget_hit = True
+            break
+        best_score = float("-inf")
+        best_cells = ""
+        for _ in range(restarts):
+            if deadline is not None and time.monotonic() > deadline:
+                budget_hit = True
+                break
+            score, cells = _climb_square(
+                letters, value, engine, generator, iterations, deadline,
+            )
+            if score > best_score:
+                best_score, best_cells = score, cells
+        if not best_cells:
+            continue
+
+        square = PolybiusSquare(best_cells)
+        plaintext = decrypt(letters, square, value)
+        diagnostics: dict[str, Any] = {
+            "period": value,
+            "square": best_cells,
+            "square_grid": " ".join(best_cells[i:i + 5]
+                                    for i in range(0, 25, 5)),
+            "restarts": restarts,
+            "search": (
+                f"simulated annealing over the 25 cells, {restarts} restarts "
+                f"x {iterations} steps (not exhaustive)"
+            ),
+        }
+        annotate(diagnostics, plaintext, engine)
+        results.add(
+            Candidate(
+                method=METHOD_UNKNOWN_SQUARE,
+                key=f"period={value} square={best_cells}",
+                score=engine.score(plaintext),
+                plaintext=plaintext,
+                diagnostics=diagnostics,
+            )
+        )
+
+    for candidate in results.ranked():
+        if budget_hit:
+            candidate.diagnostics["time_budget_hit"] = True
+
+    if top is not None and top > 0:
+        return CandidateSet(results.top(top), source_letters=letters)
+    return results

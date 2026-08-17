@@ -262,6 +262,10 @@ class TestEveryCommandRuns(unittest.TestCase):
             ["transposition", "--max-key-length", "4"],
             ["transposition", "--routes"],
             ["polybius"], ["bifid", "--max-period", "4"],
+            # A short budget: this proves the flag is wired to the search,
+            # not that the search succeeds.
+            ["bifid", "--search-square", "--period", "5",
+             "--max-time", "2", "--seed", "1"],
             # Ordinary English is not ADFGVX, so this exercises the refusal
             # path: it must say so rather than print nothing.
             ["adfgvx"],

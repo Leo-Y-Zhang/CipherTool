@@ -1835,12 +1835,38 @@ and ranks by English score. A square that cannot even hold the ciphertext
 letters -- a drop-Q square against a text containing Q -- is ruled out and
 recorded in `squares_ruled_out` rather than silently skipped.
 
-**Limitations.** The solver does not *search* for an unknown square. If the grid
+**Limitations.** `solve()` does not *search* for an unknown square. If the grid
 is a scrambled alphabet with no keyword behind it, every period will score as
 noise, and the honest reading of that output is "the square is not one of
 these", not "the text is not Bifid". Also, `decrypt()` runs the ciphertext
 through `prepare()` first, so a J in a ciphertext handed to an I/J square is
 folded to I before decryption.
+
+### Searching for the square
+
+`solve_unknown_square()` closes that gap by hill-climbing the twenty-five cells
+against the English score of the decryption, exactly as `playfair.py` climbs
+its own square, and it works for the same reason: a square that is nearly right
+decrypts into nearly-English, so the score slopes towards the answer. Annealing
+rather than a greedy climb, because swapping two cells of a nearly-right square
+usually scores worse before it scores better. Measured: a keyed square
+recovered from 400 letters in about seven seconds, from 800 in seventeen.
+
+**The period is screened first, and the screen has to be far longer than the
+equivalent one in the double-columnar search.** That contrast is the useful
+thing to remember. There, a wrong column shape cannot produce English at any
+search length, so a very short run separates right from wrong. Here even the
+CORRECT period looks like noise until its square has been climbed properly, so
+a short screen ranks almost at random. MEASURED on 500 letters at period 7,
+screening periods 1 to 9: a 1,000-step screen ranked the true period **sixth of
+nine**, 3,000 ranked it second, and 6,000 ranked it first. The shortlist keeps
+three, so 3,000 is enough -- but 1,000 would have been worse than not screening
+at all, because it would confidently discard the answer.
+
+**Never exhaustive.** There are 25! squares, roughly 1.55 x 10^25, so a run
+that finds nothing is not evidence that there is nothing to find, and every
+candidate says as much. A keyword from the story, fed in through `--words`,
+beats this search every time.
 
 ## Playfair (`playfair.py`)
 

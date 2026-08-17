@@ -14,6 +14,27 @@ Add entries here as you work. Suggested headings: `Added`, `Changed`,
 
 ### Added
 
+- **A search for an unknown Bifid square** (`bifid.solve_unknown_square`,
+  `cipher_tool bifid --search-square`, and a `--deep` pipeline stage). `solve`
+  tries the squares it is handed and no others, so a keyed grid with no
+  keyword available scored as noise -- honest, and still a hole, because a
+  competition does not hand over the keyword. The grid is now hill-climbed
+  cell by cell against the English score of its decryption, exactly as
+  `playfair.py` already climbs its own. Measured: a keyed square recovered
+  from 400 letters in about seven seconds and from 800 in seventeen.
+
+  Periods are screened before any is climbed properly, and the screen had to
+  be **much longer than the equivalent one for double columnar** -- measured
+  on 500 letters at period 7, a 1,000-step screen ranked the true period
+  SIXTH of nine, while 3,000 ranked it second and 6,000 first. The reason is
+  worth keeping: a wrong transposition shape can never produce English at any
+  search length, so a very short run separates it, but a Bifid period needs a
+  real climb before its score moves at all.
+
+  **Never exhaustive.** There are 25! squares, so a run that finds nothing is
+  not evidence that there is nothing to find, and every candidate says so. If
+  the story offers candidate keywords, `--words` is still faster and surer.
+
 - **ADFGVX and ADFGX, with an attack** (`adfgvx.py`, `cipher_tool adfgvx`,
   and a stage that runs from `--fast`). Measured before it existed: a real
   ADFGVX message produced **no candidates at all** -- the pieces were both

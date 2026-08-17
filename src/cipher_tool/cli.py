@@ -767,6 +767,28 @@ def command_bifid(args: argparse.Namespace) -> int:
     """Bifid: Polybius coordinates, fractionated and re-read."""
     text, _ = read_source(args)
     normalized = normalize(text)
+
+    # Checked BEFORE the decrypt branch below, because --period means two
+    # different things depending on company: on its own it says "decrypt with
+    # this period", and with --search-square it pins the period for the
+    # search. Ordering these the other way round silently ignored the search
+    # flag and decrypted with the standard square instead -- found by running
+    # it, not by the tests.
+    if args.search_square:
+        # Searching is the slower, weaker option and is offered second on
+        # purpose: a keyword from the story beats a climb through 25!
+        # squares every time.
+        options: dict[str, Any] = {"max_period": args.max_period}
+        if args.period is not None:
+            options = {"period": args.period}
+        found = bifid.solve_unknown_square(
+            normalized, top=args.top, seed=args.seed,
+            time_budget=args.max_time, **options,
+        )
+        show_candidates(found, args, "Bifid with the square searched for")
+        finish(args)
+        return 0
+
     if args.key is not None or args.period is not None:
         square = (polybius.PolybiusSquare.standard(args.key)
                   if args.key else None)
@@ -2015,6 +2037,11 @@ def build_parser() -> argparse.ArgumentParser:
     bifid_parser.add_argument("--max-period", type=int, default=15,
                               metavar="N", dest="max_period")
     bifid_parser.add_argument("--words", metavar="LIST")
+    bifid_parser.add_argument("--search-square", action="store_true",
+                              dest="search_square",
+                              help="hill-climb the 5x5 square when no keyword "
+                                   "is known (a randomised search, never "
+                                   "exhaustive)")
     bifid_parser.add_argument("--encrypt", action="store_true")
 
     playfair_parser = add("playfair", command_playfair, "Playfair",

@@ -336,6 +336,15 @@ def build_stages(effort: str, top: int, seed: int | None) -> list[Stage]:
               columnar.solve_double,
               {"top": top, "max_key_length": 8, "seed": seed,
                "restarts": 6, "iterations": 15_000, "time_budget": 60.0}),
+        # Bifid against a square nobody supplied. Held to --deep because,
+        # unlike ADFGVX, there is no cheap way to recognise it: a Bifid
+        # ciphertext looks like any other letter salad, so the cost is paid
+        # on every message that gets this far rather than only the ones this
+        # can help. Budgeted for the same reason.
+        Stage("Bifid (unknown square)", "fractionating", "deep", 15.0,
+              bifid.solve_unknown_square,
+              {"top": top, "seed": seed, "max_period": 12,
+               "restarts": 3, "iterations": 6_000, "time_budget": 45.0}),
         Stage("Playfair", "digraphic", "deep", 10.0, playfair.solve,
               {"top": top, "restarts": playfair_restarts, "seed": seed}),
         Stage("Hill 2x2", "digraphic", "deep", 10.0, hill.solve,

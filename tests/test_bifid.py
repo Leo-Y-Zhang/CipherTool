@@ -26,12 +26,14 @@ ATTACKAT with period 3 splits into ATT, ACK, AT:
 
 from __future__ import annotations
 
+import time
 import unittest
 from pathlib import Path
 
-from cipher_tool.bifid import decrypt, encrypt, solve
+from cipher_tool.bifid import decrypt, encrypt, solve, solve_unknown_square
 from cipher_tool.normalize import group_text, letters_only, normalize
 from cipher_tool.polybius import PolybiusSquare
+from cipher_tool.scoring import default_scorer
 
 CORPUS = (
     Path(__file__).resolve().parents[1]
@@ -276,6 +278,104 @@ class TestFailureModes(unittest.TestCase):
         self.assertEqual(best.plaintext, text)
         self.assertEqual(best.diagnostics["period"], "1")
         self.assertIn("identity", str(best.diagnostics["note"]))
+
+
+class TestUnknownSquare(unittest.TestCase):
+    """Recovering a KEYED square nobody supplied.
+
+    `solve` tries the squares it is handed and no others, so a keyed message
+    with no keyword available was out of reach. Measured, the pipeline gave a
+    `weak` reading of a Bifid message and the README said as much -- honest,
+    and still a hole, because a competition does not hand over the keyword.
+
+    The square is hill-climbed instead, exactly as Playfair's already is.
+    MEASURED: 500 letters at period 7 recovered in a few seconds.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.scorer = default_scorer()
+        # J folds into I in a 5x5 square, so the plaintext must not contain
+        # one if the round trip is to be character-exact.
+        cls.plaintext = sample_text(500).replace("J", "I")
+        cls.square = PolybiusSquare.standard("TEMPEST")
+        cls.ciphertext = encrypt(cls.plaintext, cls.square, 7)
+
+    def test_it_recovers_a_keyed_square_with_the_period_known(self) -> None:
+        found = solve_unknown_square(
+            self.ciphertext, scorer=self.scorer, top=1, period=7, seed=1,
+        )
+        self.assertEqual(found.best().plaintext, self.plaintext)
+
+    def test_it_finds_the_period_when_not_told(self) -> None:
+        # Full strength deliberately. Cutting this to two restarts of 6,000
+        # steps to save half a minute made it fail: identifying the period
+        # is only half the job, and the winning period still has to be
+        # climbed properly before its plaintext is right.
+        found = solve_unknown_square(
+            self.ciphertext, scorer=self.scorer, top=1, seed=1, max_period=9,
+        )
+        best = found.best()
+        self.assertEqual(best.plaintext, self.plaintext)
+        self.assertEqual(best.diagnostics["period"], 7)
+
+    def test_it_reports_the_square_so_the_answer_can_be_checked(self) -> None:
+        # Cheap on purpose: the invariant holds whether or not the search
+        # succeeded, so it does not need a full-strength climb to prove.
+        best = solve_unknown_square(
+            self.ciphertext, scorer=self.scorer, top=1, period=7, seed=1,
+            restarts=1, iterations=1200,
+        ).best()
+        recovered = PolybiusSquare(best.diagnostics["square"])
+        self.assertEqual(
+            decrypt(self.ciphertext, recovered, 7), best.plaintext,
+            "the square it prints must reproduce the answer it prints",
+        )
+
+    def test_it_never_claims_the_search_was_exhaustive(self) -> None:
+        best = solve_unknown_square(
+            self.ciphertext, scorer=self.scorer, top=1, period=7, seed=1,
+            restarts=1, iterations=1200,
+        ).best()
+        self.assertIn("not exhaustive", best.diagnostics["search"])
+
+    def test_the_seed_makes_a_run_reproducible(self) -> None:
+        options = dict(scorer=self.scorer, top=1, period=7, seed=9,
+                       restarts=1, iterations=600)
+        first = solve_unknown_square(self.ciphertext, **options).best()
+        second = solve_unknown_square(self.ciphertext, **options).best()
+        self.assertEqual(first.plaintext, second.plaintext)
+
+    def test_random_letters_are_not_reported_as_solved(self) -> None:
+        import random
+
+        generator = random.Random(3)
+        noise = "".join(generator.choice("ABCDEFGHIKLMNOPQRSTUVWXYZ")
+                        for _ in range(400))
+        best = solve_unknown_square(
+            noise, scorer=self.scorer, top=1, period=7, seed=1,
+            restarts=1, iterations=800,
+        ).best()
+        if best is not None:
+            self.assertNotEqual(best.confidence(), "strong")
+
+    def test_a_time_budget_is_honoured(self) -> None:
+        started = time.monotonic()
+        solve_unknown_square(
+            self.ciphertext, scorer=self.scorer, top=1, seed=1,
+            max_period=12, time_budget=1.0,
+        )
+        self.assertLess(time.monotonic() - started, 25.0)
+
+    def test_empty_input_is_not_a_crash(self) -> None:
+        self.assertEqual(len(solve_unknown_square("", scorer=self.scorer)), 0)
+
+    def test_the_pipeline_reaches_it_at_deep(self) -> None:
+        """A solver nothing calls is decoration."""
+        from cipher_tool.auto import build_stages
+
+        names = [stage.name for stage in build_stages("deep", 5, 1)]
+        self.assertIn("Bifid (unknown square)", names)
 
 
 if __name__ == "__main__":
