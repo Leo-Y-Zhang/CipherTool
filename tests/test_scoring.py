@@ -193,5 +193,65 @@ class TestCalibrationSeparation(unittest.TestCase):
         self.assertLess(max(wrong), 0.35)
 
 
+class TestSegmentationDoesNotInventWordBreaks(unittest.TestCase):
+    """A word the lexicon does not hold must come back WHOLE.
+
+    `segment` promises exactly this in its own docstring: "a stretch it
+    cannot account for is returned as one unbroken chunk rather than chopped
+    into plausible-looking nonsense". It was not doing that. Given a run it
+    could not explain, the search mined short known words out of the middle
+    of it, because paying for the two letters of NO as a word is far cheaper
+    than paying the unknown-letter cost for them.
+
+    Reported from a real solve of a National Cipher Challenge message, where
+    the letters were exactly right and the spacing was not:
+
+        MY DEARCH A RLES            for  MY DEAR CHARLES
+        TECH NO LOGY                for  TECHNOLOGY
+        GENERAL DO DGE              for  GENERAL DODGE
+        THE MYSTERYO FED WIND ROOD  for  THE MYSTERY OF EDWIN DROOD
+
+    Names cannot be fixed by any lexicon -- CHARLES and DROOD will never be
+    in one written for a cipher toolkit -- so the fix is to stop pretending
+    to know where their word breaks are.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.scorer = default_scorer()
+
+    def test_a_name_is_not_chopped_into_fragments(self) -> None:
+        self.assertEqual(
+            self.scorer.segment("MYDEARCHARLES"), ["MY", "DEAR", "CHARLES"]
+        )
+
+    def test_a_word_outside_the_lexicon_stays_whole(self) -> None:
+        self.assertEqual(self.scorer.segment("TECHNOLOGY"), ["TECHNOLOGY"])
+
+    def test_a_surname_is_not_split_by_a_short_word_inside_it(self) -> None:
+        """DODGE was split because DO is in the lexicon and DGE is not."""
+        self.assertEqual(
+            self.scorer.segment("GENERALDODGE"), ["GENERAL", "DODGE"]
+        )
+
+    def test_known_words_are_still_separated(self) -> None:
+        """The fix must not glue genuine words together.
+
+        This is the direction that would do real damage: refusing to split
+        anything at all would 'fix' every example above and destroy the
+        feature.
+        """
+        self.assertEqual(
+            self.scorer.segment("THEHARBOUROFFICE"),
+            ["THE", "HARBOUR", "OFFICE"],
+        )
+
+    def test_a_real_sentence_still_segments(self) -> None:
+        self.assertEqual(
+            self.scorer.segment("IHAVETHEHONOURTOREPORT"),
+            ["I", "HAVE", "THE", "HONOUR", "TO", "REPORT"],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

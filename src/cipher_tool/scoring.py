@@ -107,6 +107,98 @@ def _letters(text: str) -> str:
     return "".join(ch for ch in text.upper() if "A" <= ch <= "Z")
 
 
+#: A lexicon word no longer than this, sitting inside text the lexicon cannot
+#: explain, is a coincidence of letters rather than a word. NO is a word; the
+#: NO in TECHNOLOGY is not.
+SPURIOUS_WORD_LETTERS = 2
+
+#: The same idea for a word with unexplained text on BOTH sides, where the
+#: evidence is stronger and the limit can be looser. TECHNOLOGY splits as
+#: TECH + NO + LOG + Y, and LOG is three letters, so a limit of two would
+#: leave it stranded in the middle of a word nothing else recognised.
+SANDWICHED_WORD_LETTERS = 3
+
+#: An unexplained run no longer than this is a fragment of a word rather than
+#: an unknown word in its own right, so a short word beside it probably
+#: belongs to it. DGE is a fragment, so DO+DGE is DODGE; CHARLES is not, so
+#: the DEAR before it stays a word of its own.
+WORD_FRAGMENT_LETTERS = 4
+
+
+def _absorb_spurious_words(
+    flagged: list[tuple[str, bool]],
+) -> list[tuple[str, bool]]:
+    """Undo word breaks the lexicon's gaps invented.
+
+    `segment` promises that a stretch it cannot account for comes back as one
+    unbroken chunk. Left alone it does not keep that promise: the search will
+    happily mine a short known word out of the middle of an unknown one,
+    because two letters of NO cost far less as a word than as unknown text.
+    Measured on a real solve, that turned CHARLES into ``CH A RLES``,
+    TECHNOLOGY into ``TECH NO LOGY`` and DODGE into ``DO DGE``.
+
+    Two rules, and the second is what stops the first going too far:
+
+    1. A short known word with unexplained text on BOTH sides is absorbed
+       into it. Nothing around it was recognised, so a word boundary there is
+       a guess dressed as a finding.
+    2. A short known word beside a SHORT unexplained run is absorbed into it.
+       The length test is the whole safeguard: DGE is three letters and
+       cannot be a word, so DO belongs to it, while CHARLES is seven and
+       stands on its own, so the DEAR before it is left alone.
+    """
+    if not flagged:
+        return flagged
+
+    def join_runs(items: list[tuple[str, bool]]) -> list[tuple[str, bool]]:
+        out: list[tuple[str, bool]] = []
+        for text, explained in items:
+            if not explained and out and not out[-1][1]:
+                out[-1] = (out[-1][0] + text, False)
+            else:
+                out.append((text, explained))
+        return out
+
+    # Both rules run together, to a fixed point, because each one creates
+    # work for the other. TECHNOLOGY splits as TECH + NO + LOG + Y, and
+    # neither rule fires on its own: NO has LOG (a real word) on its right so
+    # it is not sandwiched, and LOG has NO on its left for the same reason.
+    # Rule 2 absorbs NO into the fragment TECH, and only THEN is LOG
+    # sandwiched between TECHNO and Y, which is what finally puts the word
+    # back together.
+    joined = join_runs(list(flagged))
+    while True:
+        changed = False
+
+        for index in range(1, len(joined) - 1):
+            text, explained = joined[index]
+            if (explained and len(text) <= SANDWICHED_WORD_LETTERS
+                    and not joined[index - 1][1] and not joined[index + 1][1]):
+                joined[index] = (text, False)
+                changed = True
+
+        for index, (text, explained) in enumerate(joined):
+            if not explained or len(text) > SPURIOUS_WORD_LETTERS:
+                continue
+            before = joined[index - 1] if index else None
+            after = joined[index + 1] if index + 1 < len(joined) else None
+            beside_fragment = (
+                (before is not None and not before[1]
+                 and len(before[0]) <= WORD_FRAGMENT_LETTERS)
+                or (after is not None and not after[1]
+                    and len(after[0]) <= WORD_FRAGMENT_LETTERS)
+            )
+            if beside_fragment:
+                joined[index] = (text, False)
+                changed = True
+
+        if not changed:
+            break
+        joined = join_runs(joined)
+
+    return joined
+
+
 def _words(text: str) -> list[str]:
     """Split prose into uppercase alphabetic words (apostrophes dropped)."""
     out: list[str] = []
@@ -477,7 +569,10 @@ class EnglishScorer:
 
         # Walk back, gathering unexplained letters into single chunks so the
         # output never implies a word division we did not actually find.
-        pieces: list[str] = []
+        # Each piece carries whether the lexicon actually explained it: the
+        # tidying below needs to know, and it cannot be recovered afterwards
+        # because a two-letter chunk looks identical either way.
+        flagged: list[tuple[str, bool]] = []
         unexplained: list[str] = []
         position = count
         while position > 0:
@@ -487,13 +582,15 @@ class EnglishScorer:
                 position -= 1
                 continue
             if unexplained:
-                pieces.append("".join(reversed(unexplained)))
+                flagged.append(("".join(reversed(unexplained)), False))
                 unexplained = []
-            pieces.append(letters[position - size : position])
+            flagged.append((letters[position - size : position], True))
             position -= size
         if unexplained:
-            pieces.append("".join(reversed(unexplained)))
-        pieces.reverse()
+            flagged.append(("".join(reversed(unexplained)), False))
+        flagged.reverse()
+
+        pieces = [text for text, _ in _absorb_spurious_words(flagged)]
 
         # A word our lexicon happens not to hold leaves its ending stranded:
         # TASKS becomes TASK + S because only TASK is listed. Printing
