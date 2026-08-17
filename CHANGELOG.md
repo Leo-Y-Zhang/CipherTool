@@ -14,6 +14,37 @@ Add entries here as you work. Suggested headings: `Added`, `Changed`,
 
 ### Added
 
+- **ADFGVX and ADFGX, with an attack** (`adfgvx.py`, `cipher_tool adfgvx`,
+  and a stage that runs from `--fast`). Measured before it existed: a real
+  ADFGVX message produced **no candidates at all** -- the pieces were both
+  present, Polybius and columnar, and nothing joined them up.
+
+  The attack undoes the transposition first, scoring a column order by the
+  index of coincidence of the symbols paired up two at a time. When the order
+  is right the pairs are the original square cells and the distribution is
+  English-shaped; when it is wrong the pairs straddle cell boundaries and
+  flatten. Measured on 600 letters: **0.0678 against 0.0398**, and it needs
+  no knowledge of the square at all. The blind spot is handled rather than
+  hoped away -- the index of coincidence cannot see the ORDER of the pairs,
+  so several column orders tie exactly (twelve on that message, the true one
+  among them, with a clear gap to the next value). The whole tied set is
+  passed on, and the tie is broken by mapping cells to letters and running
+  the existing substitution climber, because at that point it IS a
+  monoalphabetic substitution. About six seconds end to end.
+
+  It also **rebuilds the square**, by alignment rather than from the
+  substitution key: cell *i* of the stream produced letter *i* of the
+  plaintext, so reading the two together is the square. On the worked example
+  the cells spell out the keyword it was built from. The transposition key
+  alone would not let anybody re-read the message, and an answer nobody can
+  check by hand is worth very little.
+
+  Runs from `--fast` even though it is a two-stage cipher, because
+  recognition is free: an ADFGVX message is written in five or six specific
+  letters and has an even length, so everything else is refused before a
+  single permutation is tried. Anything that is not ADFGVX gets a short
+  explanation of why, not silence.
+
 - **A solver for DOUBLE columnar transposition** (`columnar.solve_double`,
   `cipher_tool columnar --double`, and a `--deep` pipeline stage). Measured
   before it existed: `auto --deep` on a double columnar message returned a

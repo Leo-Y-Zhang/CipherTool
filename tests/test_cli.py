@@ -262,6 +262,9 @@ class TestEveryCommandRuns(unittest.TestCase):
             ["transposition", "--max-key-length", "4"],
             ["transposition", "--routes"],
             ["polybius"], ["bifid", "--max-period", "4"],
+            # Ordinary English is not ADFGVX, so this exercises the refusal
+            # path: it must say so rather than print nothing.
+            ["adfgvx"],
             ["playfair", "--check"],
             ["hill", "--matrix", "3,3,2,5"],
             ["encodings"],

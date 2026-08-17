@@ -365,7 +365,10 @@ double), route and grid transpositions including boustrophedon, spirals from
 each corner, and diagonal reads.
 **Digraphic and fractionating** -- Polybius (5x5 with I/J merged or Q
 dropped, 6x6 alphanumeric, arbitrary labels including ADFGX), Bifid with
-period, Playfair, Hill 2x2 and 3x3.
+period, Playfair, Hill 2x2 and 3x3, **ADFGVX and ADFGX** (fractionation
+through a keyed square followed by a columnar transposition -- the attack
+recovers the transposition key AND rebuilds the square, so the answer can be
+checked by hand).
 **Encodings** (not ciphers) -- hexadecimal, binary, decimal ASCII, Base64,
 Morse.
 

@@ -2005,6 +2005,69 @@ you do not say otherwise, and ignores trailing letters that cannot fill a whole
 block (recording how many), since a genuine Hill ciphertext always divides
 exactly.
 
+## ADFGVX and ADFGX
+
+`adfgvx.py`. The German army cipher of 1918, and the only one here that is two
+ciphers stacked. Each plaintext letter is looked up in a keyed Polybius square
+and replaced by its **row and column labels**, so the message doubles in length
+and is written in six letters -- A, D, F, G, V, X, chosen because they are far
+apart in Morse and hard to mishear. That symbol stream is then columnar-
+transposed under a second keyword.
+
+Stacking is what made it strong, and the reason is worth stating precisely,
+because it is also the reason the attack works. Fractionation alone is a
+monoalphabetic substitution and falls to letter frequencies. Transposition
+alone leaves letters untouched and falls to column-pair statistics. Together,
+each destroys what the other's attack needs: the transposition tears every
+cell in half and scatters the halves, and the fractionation leaves no letter
+statistics to transpose.
+
+### The attack: cut the problem at the joint
+
+Undo the transposition **first**, and score a candidate column order by the
+index of coincidence of the symbols *paired up two at a time*. When the order
+is right the pairs ARE the original cells, so their distribution is the
+distribution of English letters -- lumpy, IC near 0.067. When it is wrong the
+pairs straddle cell boundaries and flatten towards the 0.028 of thirty-six
+equiprobable cells. MEASURED on a 600-letter message: **0.0678 for the true
+key against 0.0398 for a wrong one.** A wide, cheap signal -- and it needs no
+knowledge of the square whatsoever, which is the whole point.
+
+**It has one blind spot, and it is handled rather than hoped away.** The index
+of coincidence is a property of the *multiset* of pairs, so it cannot see
+their order. Several column orders produce the same pairs in a different
+sequence and score identically. On that message twelve orders tied at the
+maximum, the true one among them, with a clear gap of 0.0124 to the next
+distinct value. So the sweep does not pick a winner; it hands the whole tied
+set to the next stage.
+
+Breaking the tie costs almost nothing, because what remains **is** a
+monoalphabetic substitution: map each distinct cell to a letter and the
+message becomes an ordinary substitution cipher, which `substitution.py`
+already solves well. The order yielding the most English-looking plaintext
+wins. Whole attack, 600 letters, six-column key: about six seconds.
+
+No new cryptanalysis is invented here. The work was in finding the joint.
+
+### Recovering the square
+
+The transposition key alone does not let anybody re-read the message, so the
+square is reported too, and it is reconstructed by alignment rather than from
+the substitution key: cell *i* of the stream produced letter *i* of the
+plaintext, so reading the two together IS the square. On the worked example
+the cells come back as `AA=M AD=O AF=N AG=A AV=R AX=C DA=H DD=Y` -- which
+spells MONARCHY, the keyword the square was built from. A competition answer
+nobody can check by hand is worth very little.
+
+### Recognition
+
+Unusually reliable, and done before anything expensive: an ADFGVX ciphertext
+is written in five or six specific letters and nothing else, and its length is
+always even because every plaintext letter became exactly two symbols.
+Anything else is refused outright rather than guessed at, which is why this
+stage runs from `--fast` despite being a two-stage cipher -- it costs nothing
+when it does not apply.
+
 # Part 6: Encodings
 
 Everything in this part lives in one file, `encodings.py`, and none of it is

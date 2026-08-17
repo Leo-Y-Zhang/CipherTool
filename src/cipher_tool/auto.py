@@ -44,6 +44,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Sequence
 
 from . import (
+    adfgvx,
     affine,
     atbash,
     autokey,
@@ -259,6 +260,10 @@ def build_stages(effort: str, top: int, seed: int | None) -> list[Stage]:
     # Beyond 9 the search falls back to the greedy chain, which is markedly
     # weaker, so only --deep goes there and its candidates say so.
     columnar_max = (9, 9, 12)[scale]
+    # The ADFGVX sweep enumerates every column order, so its cost is the
+    # factorial of this: 6! is 720 orders, 8! is 40,320. Six covers the
+    # commonest keyword lengths cheaply; deep goes to eight.
+    adfgvx_max = (6, 7, 8)[scale]
 
     stages: list[Stage] = [
         Stage("encodings", "encoding", "fast", 0.2, encodings.solve,
@@ -279,6 +284,14 @@ def build_stages(effort: str, top: int, seed: int | None) -> list[Stage]:
                "brute_force_up_to": brute_force}),
         Stage("columnar", "transposition", "fast", 3.0, columnar.solve,
               {"top": top, "max_key_length": columnar_max, "seed": seed}),
+        # Runs from --fast despite being a two-stage cipher, because it costs
+        # nothing when it does not apply: an ADFGVX message is written in
+        # five or six specific letters and has an even length, so anything
+        # else is rejected before a single permutation is tried. Waiting for
+        # --deep would mean the paste screen escalating twice, and taking
+        # minutes, to reach a cipher it can recognise instantly.
+        Stage("ADFGVX", "fractionating", "fast", 6.0, adfgvx.solve,
+              {"top": top, "max_key_length": adfgvx_max, "seed": seed}),
 
         Stage("keyword substitution", "monoalphabetic", "normal", 2.0,
               keyword_cipher.solve, {"top": top, "seed": seed}),

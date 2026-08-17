@@ -32,6 +32,7 @@ from typing import Any, Callable, Sequence
 from . import (
     DISCLAIMER,
     __version__,
+    adfgvx,
     affine,
     atbash,
     auto as auto_module,
@@ -677,6 +678,54 @@ def command_transposition(args: argparse.Namespace) -> int:
         seed=args.seed, time_budget=args.max_time,
     )
     show_candidates(found, args, "Transposition (all families)")
+    finish(args)
+    return 0
+
+
+def command_adfgvx(args: argparse.Namespace) -> int:
+    """ADFGVX and ADFGX: fractionation followed by transposition."""
+    text, _ = read_source(args)
+    normalized = normalize(text)
+    labels = polybius.ADFGX_LABELS if args.adfgx else polybius.ADFGVX_LABELS
+
+    if args.key and args.transposition:
+        try:
+            if args.encrypt:
+                result = adfgvx.encrypt(normalized.letters, args.key,
+                                        args.transposition, labels=labels)
+                emit(_encrypted_report(
+                    "ADFGVX",
+                    f"square={args.key} transposition={args.transposition}",
+                    result, args), args)
+            else:
+                plaintext = adfgvx.decrypt(normalized.letters, args.key,
+                                           args.transposition, labels=labels)
+                show_candidates(
+                    single_candidate(
+                        "ADFGVX",
+                        f"square={args.key} "
+                        f"transposition={args.transposition}",
+                        plaintext, normalized),
+                    args, "ADFGVX with the keys you supplied")
+        except ValueError as error:
+            raise InputError(str(error)) from error
+        finish(args)
+        return 0
+
+    found = adfgvx.solve(normalized, top=args.top,
+                         key_length=args.key_length,
+                         max_key_length=args.max_key_length,
+                         seed=args.seed, time_budget=args.max_time)
+    if not found:
+        # Refusing is the honest answer here, but silence is not: this
+        # attack is meaningless on anything that is not written in the five
+        # or six labels, and saying why costs one line.
+        emit("\nThis is not an ADFGVX or ADFGX message.\n"
+             "  Those are written only in the letters ADFGVX (or ADFGX) and "
+             "always have an even\n"
+             "  number of them, because every plaintext letter becomes two "
+             "symbols.\n", args)
+    show_candidates(found, args, "ADFGVX")
     finish(args)
     return 0
 
@@ -1929,6 +1978,29 @@ def build_parser() -> argparse.ArgumentParser:
                                       help="list the routes that can be tested")
 
     # -- digraphic and fractionating --------------------------------------
+    adfgvx_parser = add("adfgvx", command_adfgvx,
+                        "ADFGVX / ADFGX (fractionation + transposition)",
+                        search=True)
+    adfgvx_parser.add_argument("--key", metavar="KEYWORD",
+                               help="the Polybius square keyword; with "
+                                    "--transposition, decrypt instead of "
+                                    "attacking")
+    adfgvx_parser.add_argument("--transposition", metavar="KEYWORD",
+                               help="the transposition keyword")
+    adfgvx_parser.add_argument("--key-length", type=int, metavar="N",
+                               dest="key_length",
+                               help="attack this transposition key length "
+                                    "only")
+    adfgvx_parser.add_argument("--max-key-length", type=int, metavar="N",
+                               dest="max_key_length",
+                               default=adfgvx.DEFAULT_MAX_KEY_LENGTH,
+                               help="every column order up to this length is "
+                                    "enumerated, so the cost is its factorial "
+                                    f"(default {adfgvx.DEFAULT_MAX_KEY_LENGTH})")
+    adfgvx_parser.add_argument("--adfgx", action="store_true",
+                               help="the 1918 five-letter variant")
+    adfgvx_parser.add_argument("--encrypt", action="store_true")
+
     polybius_parser = add("polybius", command_polybius, "Polybius square")
     polybius_parser.add_argument("--key", metavar="KEYWORD")
     polybius_parser.add_argument("--square", metavar="LETTERS",
