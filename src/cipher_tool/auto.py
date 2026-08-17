@@ -341,10 +341,20 @@ def build_stages(effort: str, top: int, seed: int | None) -> list[Stage]:
         # ciphertext looks like any other letter salad, so the cost is paid
         # on every message that gets this far rather than only the ones this
         # can help. Budgeted for the same reason.
+        # Runs at the module's OWN default effort, not a trimmed-down
+        # version of it. MEASURED on a 400-letter keyed message at period 7:
+        # three restarts of 6,000 steps failed inside a 45 second budget and
+        # reported `weak`, while four of 8,000 solved it at `strong` in 42.7
+        # seconds. A stage that runs, spends half a minute and cannot reach
+        # the answer is worse than no stage at all, because its presence
+        # reads as coverage -- the same mistake the double columnar stage
+        # made with a key-length ceiling of six.
         Stage("Bifid (unknown square)", "fractionating", "deep", 15.0,
               bifid.solve_unknown_square,
               {"top": top, "seed": seed, "max_period": 12,
-               "restarts": 3, "iterations": 6_000, "time_budget": 45.0}),
+               "restarts": bifid.DEFAULT_CLIMB_RESTARTS,
+               "iterations": bifid.DEFAULT_CLIMB_ITERATIONS,
+               "time_budget": 90.0}),
         Stage("Playfair", "digraphic", "deep", 10.0, playfair.solve,
               {"top": top, "restarts": playfair_restarts, "seed": seed}),
         Stage("Hill 2x2", "digraphic", "deep", 10.0, hill.solve,

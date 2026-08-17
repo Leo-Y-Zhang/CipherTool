@@ -377,6 +377,27 @@ class TestUnknownSquare(unittest.TestCase):
         names = [stage.name for stage in build_stages("deep", 5, 1)]
         self.assertIn("Bifid (unknown square)", names)
 
+    def test_the_pipeline_runs_it_hard_enough_to_succeed(self) -> None:
+        """A stage that cannot reach the answer is worse than no stage.
+
+        MEASURED on a 400-letter keyed message at period 7: three restarts of
+        6,000 steps failed inside a 45 second budget and reported `weak`,
+        while four of 8,000 solved it at `strong` in 42.7 seconds. The first
+        version of this stage used the weaker numbers and looked like
+        coverage while providing none.
+        """
+        from cipher_tool.auto import build_stages
+        from cipher_tool.bifid import (DEFAULT_CLIMB_ITERATIONS,
+                                       DEFAULT_CLIMB_RESTARTS)
+
+        stage = next(s for s in build_stages("deep", 5, 1)
+                     if s.name == "Bifid (unknown square)")
+        self.assertGreaterEqual(stage.options["restarts"],
+                                DEFAULT_CLIMB_RESTARTS)
+        self.assertGreaterEqual(stage.options["iterations"],
+                                DEFAULT_CLIMB_ITERATIONS)
+        self.assertGreaterEqual(stage.options["time_budget"], 60.0)
+
 
 if __name__ == "__main__":
     unittest.main()
