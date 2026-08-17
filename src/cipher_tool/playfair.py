@@ -172,6 +172,46 @@ _FOLD_TARGETS = {"I": "J", "J": "I"}
 #: docstring above and repeated in every candidate's diagnostics.
 RELIABLE_LENGTH = 200
 
+#: Below this many letters the confidence label is capped below ``strong``,
+#: however English the reading looks.
+#:
+#: MEASURED against the TRUE decryption, five DIFFERENT texts per length
+#: (one per corpus file), keyword TEMPEST, eight restarts. The column that
+#: decides this number is the last one: how often a WRONG answer came back
+#: wearing the ``strong`` label.
+#:
+#:     length   exact   wrong AND labelled strong
+#:      200      1/5     0/5
+#:      300      3/5     0/5
+#:      400      4/5     1/5   <-- still lying at four in five
+#:      500      4/5     0/5   (the wrong one happened to score weak)
+#:      600      4/5     0/5   (likewise -- luck, not a guarantee)
+#:      800      5/5     0/5
+#:     1000      5/5     0/5
+#:
+#: Set to 800, and the first attempt at 400 was wrong. Four correct answers
+#: in five is not ``strong``; it is exactly what ``promising`` is for. At 500
+#: and 600 no wrong answer wore the label, but only because the wrong ones
+#: happened to score badly, which is luck rather than a property to rely on.
+#:
+#: The underlying cause: a square carries twenty-five cells of freedom, which
+#: on a short message is more freedom than the ciphertext has evidence, so
+#: the climb settles on a square that is nearly right and gets the rare
+#: letters wrong. Observed at 300 letters: ``...UNDERSZCOMYMAND...`` against
+#: a true ``...UNDERMYCOMXMAND...``, fluent, 81 per cent word coverage, and
+#: labelled ``strong``. The score cannot see any of that -- it reads the
+#: plaintext and knows nothing about how much room the search had to
+#: manufacture one.
+#:
+#: The README already advised treating a short Playfair result as a lead
+#: rather than an answer. A caveat only the documentation knows is not a
+#: caveat, and the same README claimed no wrong answer had ever come back
+#: labelled strong, which this measurement disproved.
+#:
+#: Same guard `substitution.solve` carries, for the same reason; see
+#: RELIABLE_CLIMB_LETTERS there.
+RELIABLE_CLIMB_LETTERS = 800
+
 #: Search defaults, measured on 520-letter samples from the project corpus
 #: (see ``_digraph_model`` and ``_search`` for what was measured and why).
 #: One restart of 150,000 moves recovered the square on four seeds in eight
@@ -1306,9 +1346,23 @@ def _outlook(length: int) -> str:
             "the attack starts to work, but expect several restarts to "
             "disagree with each other."
         )
+    if length < RELIABLE_CLIMB_LETTERS:
+        # This used to say "enough for this attack, which becomes reliable
+        # somewhere around 300-500 letters", and the measurement did not
+        # support it: across five texts per length, 400 to 600 letters came
+        # back exactly right four times in five, and one of the wrong ones
+        # wore a `strong` label. Four in five is a good lead, not an answer.
+        return (
+            f"{length} letters: enough to work with, but MEASURED at roughly "
+            "four correct answers in five between 300 and 600 letters -- so "
+            "the label is capped at promising here. Read the plaintext; the "
+            "rare letters are what it gets wrong. Reliable from about "
+            f"{RELIABLE_CLIMB_LETTERS}."
+        )
     return (
-        f"{length} letters: enough for this attack, which becomes reliable "
-        "somewhere around 300-500 letters."
+        f"{length} letters: enough for this attack, which measured five "
+        f"correct answers out of five at and above {RELIABLE_CLIMB_LETTERS} "
+        "letters."
     )
 
 
@@ -1508,7 +1562,15 @@ def solve(
             plaintext=plaintext,
             diagnostics=dict(evidence),
         )
-        if stop_when_strong and probe.confidence() == "strong":
+        # Only stop early on a `strong` reading the length can actually
+        # support. Below RELIABLE_CLIMB_LETTERS a `strong` probe is precisely
+        # the thing that turned out not to be trustworthy -- measured, it
+        # stopped after four of eight restarts on a 300-letter message and
+        # returned a square with the rare letters wrong. Spending the
+        # remaining restarts is the cheapest possible insurance against that.
+        if (stop_when_strong
+                and len(letters) >= RELIABLE_CLIMB_LETTERS
+                and probe.confidence() == "strong"):
             stopped_early = True
             break
 
@@ -1522,6 +1584,17 @@ def solve(
             f"T0={heat:.1f}"
         )
         diagnostics["outlook"] = outlook
+        if len(letters) < RELIABLE_CLIMB_LETTERS:
+            diagnostics["short_text_warning"] = (
+                f"only {len(letters)} letters; measured, this attack does not "
+                f"reliably return the exact plaintext below about "
+                f"{RELIABLE_CLIMB_LETTERS}, and gets rare letters wrong while "
+                "still reading as English"
+            )
+            # Weaken the headline to match the warning. The cap can only ever
+            # lower a label, never raise one, so a short text that scores
+            # badly is unaffected.
+            diagnostics["confidence_cap"] = "promising"
         diagnostics["square"] = square.compact()
         diagnostics["square_canonical"] = canonical_square(square).compact()
         diagnostics["equivalent_squares"] = (

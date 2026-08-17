@@ -140,6 +140,24 @@ Add entries here as you work. Suggested headings: `Added`, `Changed`,
 
 ### Fixed
 
+- **Playfair called a wrong answer `strong` on short text, and the README
+  claimed it never did.** The README said "in none of the 25 runs did a wrong
+  answer come back labelled `strong`, which is the property that matters
+  most". Checking that took one sweep, and it was false: at 300 letters the
+  climb returned `...UNDERSZCOMYMAND...` against a true
+  `...UNDERMYCOMXMAND...` -- fluent, 81 per cent word coverage, rare letters
+  wrong -- and labelled it `strong`.
+
+  Measured across five DIFFERENT texts per length (compared against the TRUE
+  decryption, since Playfair inserts fillers and is never character-identical
+  to the original): 200 letters 1/5 exact, 300 3/5, 400 4/5 with one
+  wrong-and-`strong`, 500 and 600 4/5, 800 and 1000 5/5. So the floor is 800
+  -- four correct in five is what `promising` means. Below it the label is
+  now capped, using the same mechanism `substitution.solve` already carries,
+  and the search no longer abandons half its restarts on a `strong` probe the
+  length cannot support. Re-swept afterwards: zero wrong-and-`strong` at every
+  length, and 800+ still earns `strong` at five out of five.
+
 - **A numeric ciphertext was reported as an empty paste.** The paste screen
   works on letters, so a Polybius ciphertext -- 400 digits, no letters --
   normalised to nothing and the user was told "No letters were pasted, so

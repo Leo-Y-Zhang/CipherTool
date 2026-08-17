@@ -563,9 +563,14 @@ class TestSolveByAnnealing(unittest.TestCase):
             f"recovered text was: {best.plaintext[:120]}",
         )
         self.assertEqual(best.plaintext, expected)
-        self.assertEqual(best.confidence(), "strong")
+        # `promising`, not `strong`: 520 letters is below the measured floor
+        # of 800, where five texts in five came back exactly right. Between
+        # 300 and 600 it was four in five, and one of the wrong ones wore a
+        # `strong` label -- so being right here does not earn one. The
+        # plaintext assertion above is what this test exists for.
+        self.assertEqual(best.confidence(), "promising")
         self.assertEqual(best.diagnostics["ciphertext_letters"], len(cipher))
-        self.assertIn("enough for this attack", best.diagnostics["outlook"])
+        self.assertIn("enough to work with", best.diagnostics["outlook"])
 
     def test_recovered_square_is_equivalent_to_the_real_one(self) -> None:
         plain = corpus_letters(520)
@@ -638,7 +643,14 @@ class TestSolveChoosesTheOmittedLetter(unittest.TestCase):
         cipher, expected = self.q_square_ciphertext()
         best = solve(cipher, seed=1, restarts=3).best()
         self.assertEqual(best.plaintext, expected)
-        self.assertEqual(best.confidence(), "strong")
+        # `promising`, not `strong`, and deliberately so. This message is 320
+        # letters, below the measured length at which the climb reliably
+        # returns the EXACT plaintext, so RELIABLE_CLIMB_LETTERS caps the
+        # label. It happens to be exactly right here; three seeds at 300
+        # letters were not, which is why being right sometimes cannot earn
+        # the strong label. The plaintext assertion above is what this test
+        # is actually for.
+        self.assertEqual(best.confidence(), "promising")
 
     def test_ordinary_ciphertext_keeps_the_classic_merge(self) -> None:
         cipher = encrypt(corpus_letters(120), "CIPHERCHALLENGE")
@@ -802,6 +814,89 @@ class TestModuleIsOffline(unittest.TestCase):
             "webbrowser",
         ):
             self.assertNotIn(banned, source)
+
+
+class TestShortTextIsNotCalledStrong(unittest.TestCase):
+    """The failure this toolkit exists to avoid, in the weakest solver.
+
+    Playfair has twenty-five cells of freedom. On a short message that is
+    more freedom than the ciphertext has evidence, so the climber lands on a
+    square that is nearly right -- fluent English, high word coverage, and
+    the rare letters wrong. MEASURED against the true decryption, three seeds
+    per length:
+
+        200 letters  0/3 exact   labels: strong, weak, promising
+        300 letters  0/3 exact   labels: strong, strong, weak
+        400 letters  3/3 exact   labels: strong, strong, strong
+        600 letters  3/3 exact   labels: strong, strong, strong
+
+    At 300 letters it returned `SIRIHAVE...UNDERSZCOMYMAND...` against a true
+    `...UNDERMYCOMXMAND...` and called it `strong`. The README already said
+    to treat a short Playfair result as a lead rather than an answer; the
+    tool did not, and a caveat only the documentation knows is not a caveat.
+
+    This is the same fix substitution.solve already carries for the same
+    reason -- see RELIABLE_CLIMB_LETTERS there.
+    """
+
+    @staticmethod
+    def _measured_failure_text(count: int) -> str:
+        """The exact text that produced a wrong answer labelled `strong`.
+
+        Deliberately NOT `corpus_letters`, which reads a different file. On
+        that one the 300-letter climb happens to come back weak already, so a
+        test built on it passes whether or not the cap exists -- which is no
+        test at all. This reads the corpus the failure was measured on.
+        """
+        from cipher_tool.normalize import letters_only
+
+        text = (DATA_DIR / "corpus_03_letters.txt").read_text(encoding="utf-8")
+        return letters_only(text)[:count]
+
+    def test_a_short_climb_is_capped_below_strong(self) -> None:
+        plain = self._measured_failure_text(300)
+        ciphertext = encrypt(plain, "TEMPEST")
+        best = solve(ciphertext, top=1, restarts=8, seed=1).best()
+
+        # It is nearly right, which is exactly the problem: fluent English
+        # with the rare letters wrong.
+        self.assertNotEqual(best.plaintext, decrypt(ciphertext, "TEMPEST"))
+        self.assertNotEqual(
+            best.confidence(), "strong",
+            "25 cells of freedom against 300 letters cannot earn 'strong'",
+        )
+
+    def test_the_cap_explains_itself(self) -> None:
+        plain = self._measured_failure_text(300)
+        best = solve(encrypt(plain, "TEMPEST"), top=1, restarts=8,
+                     seed=1).best()
+        self.assertIn("short_text_warning", best.diagnostics)
+        self.assertEqual(best.diagnostics["confidence_cap"], "promising")
+
+    def test_a_long_enough_climb_is_still_allowed_to_be_strong(self) -> None:
+        """The cap must not silence a solve that has earned its label.
+
+        900 letters, comfortably past the measured floor of 800 where five
+        texts out of five came back exactly right.
+        """
+        plain = corpus_letters(900)
+        ciphertext = encrypt(plain, "TEMPEST")
+        best = solve(ciphertext, top=1, restarts=8, seed=1).best()
+        self.assertEqual(best.plaintext, decrypt(ciphertext, "TEMPEST"))
+        self.assertEqual(best.confidence(), "strong")
+        self.assertNotIn("confidence_cap", best.diagnostics)
+
+    def test_the_four_in_five_case_is_not_called_strong(self) -> None:
+        """400 letters is where the first wrong-and-strong answer appeared.
+
+        Four right in five is what `promising` means. This is the case that
+        moved the floor from 400 to 800, so it is pinned rather than trusted
+        to the constant's docstring.
+        """
+        plain = self._measured_failure_text(400)
+        best = solve(encrypt(plain, "TEMPEST"), top=1, restarts=8,
+                     seed=1).best()
+        self.assertNotEqual(best.confidence(), "strong")
 
 
 if __name__ == "__main__":

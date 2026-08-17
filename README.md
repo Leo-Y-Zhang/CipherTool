@@ -506,9 +506,19 @@ Stated plainly, because a tool that hides its weaknesses wastes your time.
 
   Below about 800 letters treat a Playfair result as a lead, not an answer.
   Even above it, expect to re-run with a different `--seed`. Raising
-  `--restarts` helps more than adding ciphertext does. In none of the 25
-  runs did a *wrong* answer come back labelled `strong`, which is the
-  property that matters most: it fails visibly rather than silently.
+  `--restarts` helps more than adding ciphertext does.
+
+  **Correction.** This section used to claim that in none of those 25 runs
+  did a *wrong* answer come back labelled `strong`. That was wrong, and a
+  later sweep found counterexamples at 200, 300 and 400 letters -- at 300 it
+  returned `...UNDERSZCOMYMAND...` for a true `...UNDERMYCOMXMAND...`,
+  fluent English with 81 per cent word coverage, and called it `strong`. The
+  earlier runs simply had not hit one. **The tool now enforces the advice
+  this paragraph was already giving**: below 800 letters the label is capped
+  at `promising`, whatever the score says, and the search no longer stops
+  early on a `strong` reading it is too short to trust. Measured across five
+  different texts per length, the cap removes every wrong-and-`strong`
+  result. A caveat only the documentation knows is not a caveat.
 
   Note also that a Playfair plaintext is never character-identical to the
   original: doubled letters were split with a filler during encryption, and
