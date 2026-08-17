@@ -126,10 +126,12 @@ A reading it does not believe is shown as a preview, not poured out in full:
 a screenful of gibberish under the word ANSWER reads like an answer, and
 buries the line that tells you what to do next.
 
-**If your message is numbers rather than letters** -- a Polybius square,
-Nihilist, or ADFGVX written with digits -- the paste screen says so and
-points at `encodings` and `polybius`, which are the commands that can work
-on it. It does not tell you that you pasted nothing.
+**If your message is numbers rather than letters** -- a Polybius square, or
+Morse, hex, binary or Base64 -- paste it anyway. The screen runs the solvers
+that read a symbol stream and gives you the plaintext, including recovering a
+keyed Polybius square nobody supplied. Only when nothing can read it does it
+explain what it saw and name the commands to try. It never tells you that you
+pasted nothing.
 
 **On a Mac**, the very first time, macOS will refuse to open a downloaded
 script. Right-click `cipher_tool.command`, choose **Open**, then click

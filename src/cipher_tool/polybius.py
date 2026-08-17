@@ -898,3 +898,118 @@ def solve(
     if top <= 0:
         return candidates
     return CandidateSet(candidates.top(top))
+
+
+# ---------------------------------------------------------------------------
+# Searching for an unknown square
+# ---------------------------------------------------------------------------
+
+#: Restarts for the substitution climb that recovers the cell alphabet.
+DEFAULT_UNKNOWN_RESTARTS = 30
+
+METHOD_UNKNOWN_SQUARE = "Polybius (square recovered by search)"
+
+_SUBSTITUTION_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+
+def solve_unknown_square(
+    source: str | NormalizedText,
+    *,
+    scorer: EnglishScorer | None = None,
+    top: int = 5,
+    **options: object,
+) -> CandidateSet:
+    """Recover a keyed square nobody supplied. Ranked candidates only.
+
+    :func:`solve` tries the squares it is handed, so a keyed message with no
+    keyword available scored as noise -- measured, ``weak`` and wrong without
+    the keyword, ``strong`` and right with it. A competition does not give
+    you the keyword.
+
+    **No search over squares is needed, which is the whole point.** A
+    Polybius stream is a monoalphabetic substitution written two symbols at a
+    time: map each distinct cell to a letter and it becomes an ordinary
+    substitution cipher, which ``substitution.py`` already breaks well. That
+    is the same joint the ADFGVX attack cuts at, and it costs about a second
+    rather than the minutes a hill climb over 25! squares would.
+
+    What comes back is the plaintext and the cell-to-letter mapping, which IS
+    the square, read off by alignment. The row and column LABELS are not
+    recovered and cannot be: they are a presentation layer, and every
+    relabelling of the same grid produces the same plaintext.
+
+    Options
+    -------
+    restarts:
+        Restarts for the substitution climb.
+    seed:
+        Makes the run reproducible.
+    """
+    engine = scorer or default_scorer()
+    text = source.original if isinstance(source, NormalizedText) else source
+    restarts = int(options.pop("restarts", DEFAULT_UNKNOWN_RESTARTS))
+    seed = options.pop("seed", None)
+    if options:
+        raise ValueError(
+            "unknown option(s) for the Polybius square search: "
+            f"{', '.join(sorted(str(name) for name in options))}"
+        )
+
+    results: CandidateSet = CandidateSet()
+    symbols = [character for character in str(text) if not character.isspace()]
+    if len(symbols) < 40 or len(symbols) % 2:
+        # Two symbols per letter, so an odd count is not a whole message, and
+        # below about twenty letters a substitution climb means nothing.
+        return results
+
+    pairs = ["".join(symbols[index:index + 2])
+             for index in range(0, len(symbols), 2)]
+    cells = sorted(set(pairs))
+    if not 5 <= len(cells) <= len(_SUBSTITUTION_LETTERS):
+        # Too few distinct cells to be a message; or more than there are
+        # letters to map them onto, which a 6x6 square carrying digits can
+        # produce but a letters-only plaintext cannot.
+        return results
+
+    alphabet = {cell: _SUBSTITUTION_LETTERS[index]
+                for index, cell in enumerate(cells)}
+    mapped = "".join(alphabet[pair] for pair in pairs)
+
+    # Imported here rather than at module level: substitution.py is a heavier
+    # module and nothing else in this one needs it.
+    from . import substitution
+
+    found = substitution.solve(mapped, scorer=engine, top=1,
+                               restarts=restarts, seed=seed)
+    best = found.best()
+    if best is None:
+        return results
+
+    # The square, read off by alignment: cell i produced plaintext letter i.
+    recovered: dict[str, str] = {}
+    for pair, letter in zip(pairs, best.plaintext):
+        recovered.setdefault(pair, letter)
+
+    diagnostics: dict[str, object] = {
+        "cells_used": len(cells),
+        "square": " ".join(f"{cell}={letter}"
+                           for cell, letter in sorted(recovered.items())),
+        "search": (
+            f"cell mapping, then a substitution climb of {restarts} restarts "
+            "(not exhaustive)"
+        ),
+    }
+    annotate(diagnostics, best.plaintext, engine)
+    results.add(
+        Candidate(
+            method=METHOD_UNKNOWN_SQUARE,
+            key=f"{len(cells)} cells recovered by substitution",
+            score=best.score,
+            plaintext=best.plaintext,
+            diagnostics=diagnostics,
+        )
+    )
+
+    if top is not None and top > 0:
+        return CandidateSet(results.top(top))
+    return results

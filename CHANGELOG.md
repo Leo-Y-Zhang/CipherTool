@@ -14,6 +14,28 @@ Add entries here as you work. Suggested headings: `Added`, `Changed`,
 
 ### Added
 
+- **A search for an unknown Polybius square, and a paste screen that reads
+  symbol streams** (`polybius.solve_unknown_square`, plus a stage that runs
+  from `--fast`). Measured before: a keyed Polybius message with no keyword
+  to hand scored `weak` and wrong, and handed the keyword scored `strong` and
+  right -- and the paste screen could not even reach it, because it works on
+  letters and a numeric ciphertext normalises to none.
+
+  **No search over squares was needed**, which is the point worth keeping. A
+  Polybius stream is a monoalphabetic substitution written two symbols at a
+  time, so mapping each distinct cell to a letter turns it into an ordinary
+  substitution cipher that this toolkit already breaks -- the same joint the
+  ADFGVX attack cuts at. About a second, against the minutes a hill climb
+  over 25! squares would have cost. The cell-to-letter mapping is reported,
+  and it IS the square, read off by alignment.
+
+  The paste screen now runs the solvers that read a symbol stream --
+  `encodings` for hex, binary, decimal, Base64 and Morse, and this for a
+  numeric cipher -- before falling back to explaining. Pasting a numeric
+  Polybius message returns the plaintext at `strong`; pasting Morse decodes
+  it. Pointing somebody at the right command was an improvement on telling
+  them they had pasted nothing, but it was still homework.
+
 - **A search for an unknown Bifid square** (`bifid.solve_unknown_square`,
   `cipher_tool bifid --search-square`, and a `--deep` pipeline stage). `solve`
   tries the squares it is handed and no others, so a keyed grid with no

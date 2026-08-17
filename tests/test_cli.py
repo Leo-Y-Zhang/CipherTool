@@ -883,26 +883,55 @@ class TestNumericCiphertextIsNotCalledNothing(unittest.TestCase):
     toolkit HAS solvers for that shape -- just not on this screen.
     """
 
-    def _numeric_ciphertext(self, length: int = 200) -> str:
-        from cipher_tool import polybius
-
-        square = polybius.PolybiusSquare.six_by_six(keyword="MONARCHY")
-        return polybius.encrypt(sample_plaintext(length), square)
+    # These use digits the tool CANNOT read as a cipher. A readable numeric
+    # message is now solved outright rather than explained -- see
+    # TestPasteSolvesNonLetterMessages -- so the explanation is reserved for
+    # what is genuinely beyond it, which is where it belongs.
+    UNREADABLE = "2 4 6 8 1 3 5 7 9 0 2 4 6 8 1 3"
 
     def test_digits_are_not_reported_as_an_empty_paste(self) -> None:
-        output = paste_session(self._numeric_ciphertext(), "", "q")
+        output = paste_session(self.UNREADABLE, "", "q")
         self.assertNotIn("No letters were pasted", output)
 
     def test_it_says_what_was_actually_pasted(self) -> None:
-        output = paste_session(self._numeric_ciphertext(), "", "q")
+        output = paste_session(self.UNREADABLE, "", "q")
         self.assertIn("digits", output.lower())
 
     def test_it_names_a_command_that_can_work_on_numbers(self) -> None:
         """A dead end is worse than a wrong guess. Point somewhere real."""
-        output = paste_session(self._numeric_ciphertext(), "", "q")
+        output = paste_session(self.UNREADABLE, "", "q")
         self.assertIn("polybius", output.lower())
 
     def test_a_genuinely_empty_paste_still_says_so(self) -> None:
         """The fix must not swallow the case the old message was written for."""
         output = paste_session("", "")
         self.assertIn("No letters were pasted", output)
+
+
+class TestPasteSolvesNonLetterMessages(unittest.TestCase):
+    """Paste in, answer out -- even when the message is not letters.
+
+    Pointing someone at the right command was an improvement on telling them
+    they had pasted nothing, but it is still homework. The solvers that can
+    read a symbol stream already exist, so the paste screen runs them.
+    """
+
+    def test_a_numeric_polybius_message_is_solved_not_just_explained(self) -> None:
+        from cipher_tool import polybius
+
+        plaintext = polybius.PolybiusSquare.standard().prepare(
+            sample_plaintext(300))
+        ciphertext = polybius.encrypt(
+            plaintext, polybius.PolybiusSquare.standard("TEMPEST"))
+        output = paste_session(ciphertext, "", "q")
+        self.assertIn(plaintext[:50], "".join(output.split()))
+
+    def test_morse_is_decoded_rather_than_refused(self) -> None:
+        output = paste_session("- .... . / .-. .- .. -.", "", "q")
+        self.assertIn("THE", output)
+        self.assertIn("RAIN", output)
+
+    def test_symbols_it_cannot_read_still_get_the_explanation(self) -> None:
+        """The guidance must survive for the cases that remain unreadable."""
+        output = paste_session("2 4 6 8 1 3 5 7 9 0 2 4", "", "q")
+        self.assertIn("NOT A LETTER CIPHER", output.upper())

@@ -1285,6 +1285,45 @@ def render_submission(result: "auto_module.AutoResult") -> str:
     return best.plaintext
 
 
+def _solve_letterless(raw: str, args: argparse.Namespace) -> Any | None:
+    """Try the solvers that can read a stream of symbols rather than letters.
+
+    Two of them can, and between them they cover what actually turns up:
+    ``encodings`` recognises hex, binary, decimal, Base64 and Morse, and the
+    Polybius square search reads a numeric cipher without being told the
+    square. Both refuse anything they cannot make sense of, so running them
+    speculatively costs nothing and asks the user for nothing.
+
+    Returns an ``AutoResult``-shaped object when something readable came back,
+    otherwise ``None`` so the caller can explain instead.
+    """
+    engine = default_scorer()
+    normalized = normalize(raw)
+    found = CandidateSet()
+
+    for solver in (
+        lambda: encodings.solve(normalized, scorer=engine, top=3),
+        lambda: polybius.solve_unknown_square(raw, scorer=engine, top=3,
+                                              seed=args.seed),
+    ):
+        try:
+            found.extend(solver().ranked())
+        except Exception:
+            # A solver refusing this input is the ordinary case, not a fault
+            # worth reporting to somebody who just pasted a message.
+            continue
+
+    best = found.best()
+    if best is None or best.confidence() in {"weak", "unlikely"}:
+        return None
+    return auto_module.AutoResult(
+        normalized=normalized,
+        stats=analyse(normalized),
+        candidates=found,
+        effort="fast",
+    )
+
+
 def _render_letterless(raw: str) -> str:
     """What to say when something WAS pasted but none of it is letters.
 
@@ -1510,7 +1549,14 @@ def _paste_message(
     normalized = normalize(text)
     if normalized.is_empty:
         if "".join(text.split()):
-            # Something was pasted; it simply has no letters in it.
+            # Something WAS pasted; it simply has no letters in it. Pointing
+            # at the right command was an improvement on claiming nothing had
+            # been pasted, but it is still homework: the solvers that read a
+            # symbol stream already exist, so try them before explaining.
+            found = _solve_letterless(text, args)
+            if found is not None:
+                print(_render_answer(found, exhausted=True))
+                return 0
             print(_render_letterless(text))
         else:
             print("\n  No letters were pasted, so there is nothing to work "

@@ -26,7 +26,9 @@ from cipher_tool.polybius import (
     encrypt,
     keyed_alphabet,
     solve,
+    solve_unknown_square,
 )
+from cipher_tool.scoring import default_scorer
 
 CORPUS = (
     Path(__file__).resolve().parents[1]
@@ -373,6 +375,66 @@ class TestFailureModes(unittest.TestCase):
         stream = square.encode(sample_text())[:-1]
         best = solve(stream).best()
         self.assertIn("odd_symbol_count", best.diagnostics)
+
+
+class TestUnknownSquare(unittest.TestCase):
+    """Recovering a KEYED square nobody supplied.
+
+    Measured before this existed: `solve` on a keyed Polybius message with no
+    keyword to hand returned `weak` and wrong, and handed the keyword it
+    returned `strong` and right. Honest, and still a hole, because a
+    competition does not give you the keyword.
+
+    No hill climb is needed here, unlike Bifid. A Polybius stream is a
+    monoalphabetic substitution written two symbols at a time, so mapping
+    each distinct cell to a letter turns it into an ordinary substitution
+    cipher that this toolkit already solves -- the same joint the ADFGVX
+    attack cuts at. Measured: 0.9 seconds.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.scorer = default_scorer()
+        cls.plaintext = PolybiusSquare.standard().prepare(sample_text(400))
+        cls.ciphertext = encrypt(
+            cls.plaintext, PolybiusSquare.standard("TEMPEST")
+        )
+
+    def test_it_recovers_a_keyed_square_nobody_supplied(self) -> None:
+        found = solve_unknown_square(
+            self.ciphertext, scorer=self.scorer, top=1, seed=1,
+        )
+        self.assertEqual(found.best().plaintext, self.plaintext)
+
+    def test_it_reports_the_cells_so_the_answer_can_be_checked(self) -> None:
+        best = solve_unknown_square(
+            self.ciphertext, scorer=self.scorer, top=1, seed=1,
+        ).best()
+        self.assertIn("square", best.diagnostics)
+        self.assertIn("=", best.diagnostics["square"])
+
+    def test_letter_text_is_refused_rather_than_guessed_at(self) -> None:
+        """The attack is meaningless on something that is not a stream."""
+        found = solve_unknown_square(
+            sample_text(200), scorer=self.scorer, top=1,
+        )
+        self.assertEqual(len(found), 0)
+
+    def test_an_odd_number_of_symbols_is_refused(self) -> None:
+        found = solve_unknown_square(
+            self.ciphertext[:-1], scorer=self.scorer, top=1,
+        )
+        self.assertEqual(len(found), 0)
+
+    def test_empty_input_is_not_a_crash(self) -> None:
+        self.assertEqual(len(solve_unknown_square("", scorer=self.scorer)), 0)
+
+    def test_the_pipeline_reaches_it(self) -> None:
+        """A solver nothing calls is decoration."""
+        from cipher_tool.auto import build_stages
+
+        names = [stage.name for stage in build_stages("fast", 5, 1)]
+        self.assertIn("Polybius (unknown square)", names)
 
 
 if __name__ == "__main__":

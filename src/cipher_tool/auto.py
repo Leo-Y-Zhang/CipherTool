@@ -292,6 +292,12 @@ def build_stages(effort: str, top: int, seed: int | None) -> list[Stage]:
         # minutes, to reach a cipher it can recognise instantly.
         Stage("ADFGVX", "fractionating", "fast", 6.0, adfgvx.solve,
               {"top": top, "max_key_length": adfgvx_max, "seed": seed}),
+        # Cheap for the same reason ADFGVX is: it refuses anything that is
+        # not an even-length symbol stream before doing any work, and when
+        # it does apply it is one substitution climb rather than a search
+        # over squares. About a second.
+        Stage("Polybius (unknown square)", "fractionating", "fast", 1.5,
+              polybius.solve_unknown_square, {"top": top, "seed": seed}),
 
         Stage("keyword substitution", "monoalphabetic", "normal", 2.0,
               keyword_cipher.solve, {"top": top, "seed": seed}),
