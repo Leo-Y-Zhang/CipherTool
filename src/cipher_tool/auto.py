@@ -294,6 +294,26 @@ def build_stages(effort: str, top: int, seed: int | None) -> list[Stage]:
         Stage("Bifid", "fractionating", "normal", 3.0, bifid.solve,
               {"top": top, "max_period": max_period}),
 
+        # Double columnar carries its own time_budget rather than trusting
+        # the caller to set max_time, because without one it is unbounded in
+        # a way no other stage is: the shapes grow as the SQUARE of the key
+        # ceiling and each one is a randomised climb, so an ordinary --deep
+        # run would sit there for hours. When the caller does set max_time,
+        # the loop below overwrites this with that stage's fair share, which
+        # is the right way round -- an explicit budget should beat a
+        # defensive default.
+        #
+        # The settings are deliberately weaker than the module's own
+        # defaults. This is a chance for a double transposition to fall out
+        # of a general search, not a full attack on one; somebody who
+        # suspects it should pin the key lengths and let the solver run
+        # properly. Candidates report shapes_screened and
+        # shapes_fully_searched against shapes_available, so a partial sweep
+        # is visible rather than quietly implied.
+        Stage("double columnar", "transposition", "deep", 25.0,
+              columnar.solve_double,
+              {"top": top, "max_key_length": 6, "seed": seed,
+               "restarts": 6, "iterations": 15_000, "time_budget": 40.0}),
         Stage("Playfair", "digraphic", "deep", 10.0, playfair.solve,
               {"top": top, "restarts": playfair_restarts, "seed": seed}),
         Stage("Hill 2x2", "digraphic", "deep", 10.0, hill.solve,

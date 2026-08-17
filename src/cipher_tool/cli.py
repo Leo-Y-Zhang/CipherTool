@@ -638,6 +638,21 @@ def command_columnar(args: argparse.Namespace) -> int:
         finish(args)
         return 0
 
+    if args.double:
+        # Pinning the lengths is what makes this reliable on a hard key pair,
+        # and a crib or the story usually gives them, so they are the first
+        # thing the flags let you say.
+        found = columnar.solve_double(
+            normalized, top=args.top,
+            first_length=args.first_length,
+            second_length=args.second_length,
+            max_key_length=args.max_key_length,
+            seed=args.seed, time_budget=args.max_time,
+        )
+        show_candidates(found, args, "Double columnar transposition")
+        finish(args)
+        return 0
+
     found = columnar.solve(normalized, top=args.top,
                            key_length=args.key_length,
                            max_key_length=args.max_key_length,
@@ -1891,6 +1906,19 @@ def build_parser() -> argparse.ArgumentParser:
     columnar_parser.add_argument("--complete", action="store_true",
                                  help="assume a padded complete rectangle")
     columnar_parser.add_argument("--encrypt", action="store_true")
+    columnar_parser.add_argument("--double", action="store_true",
+                                 help="attack TWO passes of columnar "
+                                      "transposition (a randomised search, "
+                                      "never exhaustive)")
+    columnar_parser.add_argument("--first-length", type=int, metavar="N",
+                                 dest="first_length",
+                                 help="with --double: pin the first key "
+                                      "length. Pinning both is what makes a "
+                                      "hard key pair reliable")
+    columnar_parser.add_argument("--second-length", type=int, metavar="N",
+                                 dest="second_length",
+                                 help="with --double: pin the second key "
+                                      "length")
 
     transposition_parser = add("transposition", command_transposition,
                                "every transposition family at once",

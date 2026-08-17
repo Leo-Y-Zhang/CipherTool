@@ -255,6 +255,10 @@ class TestEveryCommandRuns(unittest.TestCase):
             ["autokey", "--max-primer", "2"],
             ["railfence"],
             ["columnar", "--max-key-length", "4"],
+            # Pinned lengths and a short budget: this is a smoke test that
+            # the command runs and prints, not that the search succeeds.
+            ["columnar", "--double", "--first-length", "3",
+             "--second-length", "2", "--max-time", "2", "--seed", "1"],
             ["transposition", "--max-key-length", "4"],
             ["transposition", "--routes"],
             ["polybius"], ["bifid", "--max-period", "4"],

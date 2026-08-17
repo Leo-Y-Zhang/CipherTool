@@ -538,6 +538,12 @@ Stated plainly, because a tool that hides its weaknesses wastes your time.
   deliberate trade for provenance we can defend.
 - **The heuristics are often wrong**, especially about digraphic ciphers,
   which look statistically similar to polyalphabetic ones.
+- **Double transposition is a randomised search, not an exhaustive one.**
+  `columnar --double` (and the `--deep` pipeline) can break two passes, but
+  two permutations of eight columns are 40,320 squared, so nothing is
+  enumerated: finding nothing is not proof there is nothing to find. Pinning
+  the key lengths with `--first-length` and `--second-length` is what makes
+  a hard pair reliable, and a crib or the story usually gives them.
 - **Nulls, homophones, and unusual variants are not implemented.** If the
   setter has done something clever, this toolkit will not find it and you
   will have to think.

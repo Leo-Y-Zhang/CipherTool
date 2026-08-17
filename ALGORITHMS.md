@@ -1467,8 +1467,49 @@ ATTACKATDAWNNOW  keys KEYS then CAB   ->  KANNWACATWTODTA
 same, complete=True (15 padded to 24) ->  KXCXTXAXAXDXNXWXTOANAXTW
 ```
 
-**Limitation, and it is a big one: there is no solver for double columnar.**
-`decrypt_double` needs both keys. `solve` attacks a single pass only.
+**`solve` attacks a single pass only, and must not be pointed at two.** What
+it returns for a double transposition is its best single-pass reading of
+something that never was one -- measured, that came back labelled
+`promising`, which is the worst possible combination of wrong and confident.
+Two passes have their own solver, `solve_double`, described below.
+
+### Attacking two passes
+
+`decrypt_double` needs both keys; `solve_double` searches for them. It cannot
+reuse anything above, and the reason is in `encrypt_double`'s own docstring:
+after the second pass, letters that were neighbours in a plaintext row are no
+longer a fixed distance apart, so the column-pair statistics that make the
+single-pass attack cheap have nothing to lock onto. The only signal left is
+the score of the finished plaintext, so both permutations are searched
+together by simulated annealing, paying a full rescore per step.
+
+Three things about it were measured rather than assumed, and each one changed
+the design:
+
+- **Annealing, not hill climbing, and swaps are not enough.** A key that is
+  right except for one column sitting one place too early needs every later
+  column to shift, which no single swap achieves and a chain of swaps reaches
+  only through worse-scoring intermediates. Adding a lift-and-reinsert move
+  makes that whole family of near misses one step away.
+- **Diversification beats persistence.** On a 7x6 pair over 400 letters, six
+  restarts of 30,000 steps returned a near miss; twelve restarts of the same
+  length found the key, while six restarts of 80,000 steps cost two and a
+  half times as much and did not. Hence twelve restarts by default.
+- **Screen every shape before searching any of them deeply.** Searching each
+  length pair to full depth in turn spent a 40 second budget on four of
+  twenty-five shapes, and the answer was in the ninth. A short screening run
+  per shape, then the full search on the best three, found the same key in 21
+  seconds. A wrong shape cannot produce English however long it is climbed,
+  which is what makes a short screen enough to rank one.
+
+Shapes are also tried in order of how likely a length is to be a real
+keyword -- four to nine first, two last -- rather than cheapest first.
+Cheapest-first optimises the time taken to fail.
+
+**This search is never exhaustive and every candidate says so.** Two
+permutations of eight columns are 40,320 squared; nothing here can be
+enumerated, and a run that finds nothing is not evidence that there is
+nothing to find.
 
 ### The attack
 

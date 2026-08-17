@@ -33,6 +33,7 @@ implementation that slices the ciphertext into equal blocks::
 from __future__ import annotations
 
 import random
+import time
 import unittest
 
 from cipher_tool.columnar import (
@@ -46,6 +47,7 @@ from cipher_tool.columnar import (
     keyword_from_order,
     plausible_column_counts,
     solve,
+    solve_double,
 )
 from cipher_tool.normalize import group_text, letters_only, normalize
 from cipher_tool.scoring import DATA_DIR, default_scorer
@@ -474,6 +476,169 @@ class TestFailureModes(unittest.TestCase):
         message = str(caught.exception)
         self.assertIn("impossible", message)
         self.assertIn("7", message)
+
+
+class TestDoubleSolver(unittest.TestCase):
+    """Attacking two passes of columnar transposition.
+
+    Measured before this existed: `auto --deep` on a double-columnar message
+    returned a `promising` reading that was WRONG -- confident and incorrect,
+    the worst combination. The single-pass attack cannot work here and says
+    so in its own docstring: after the second pass, letters that were
+    neighbours in a plaintext row are no longer a fixed distance apart, so
+    the column-pair statistics have nothing to lock onto.
+
+    The search is therefore over both permutations at once, which is not
+    exhaustive and must never claim to be.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.scorer = default_scorer()
+        cls.plaintext = letters_only(CORPUS)[:400]
+
+    # Most of these tests pin `restarts` and `iterations` well below the
+    # module defaults. That is a deliberate trade: only ONE test here needs
+    # the search to be reliable on a hard key pair, and running the full
+    # twelve restarts in all of them cost eight minutes. Where the point is
+    # plumbing -- reproducibility, budgets, diagnostics -- a short search
+    # proves it just as well. The default restart count is justified by
+    # measurement in the module, not by these tests.
+    CHEAP = {"restarts": 3, "iterations": 4000}
+
+    def test_recovers_a_short_double_key_pair(self) -> None:
+        ciphertext = encrypt_double(self.plaintext, "KEYS", "CAB")
+        result = solve_double(
+            ciphertext, scorer=self.scorer, top=3,
+            first_length=4, second_length=3, seed=1,
+            restarts=6, iterations=15_000,
+        )
+        self.assertEqual(result.best().plaintext, self.plaintext)
+
+    def test_recovers_a_realistic_seven_by_six(self) -> None:
+        """Key lengths a competition actually uses."""
+        ciphertext = encrypt_double(self.plaintext, "MONARCH", "BERLIN")
+        result = solve_double(
+            ciphertext, scorer=self.scorer, top=3,
+            first_length=7, second_length=6, seed=1,
+        )
+        self.assertEqual(result.best().plaintext, self.plaintext)
+
+    def test_it_finds_the_lengths_when_not_told_them(self) -> None:
+        """A real user does not know the key lengths.
+
+        Short keys on purpose. What is under test is the shape sweep -- that
+        the solver tries length pairs and recognises the right one -- not how
+        hard a key it can crack, which `test_recovers_a_realistic_seven_by_six`
+        covers at full strength. Sweeping up to 4x4 at the default restart
+        count took four minutes for the same assurance.
+        """
+        ciphertext = encrypt_double(self.plaintext, "KEY", "CA")
+        result = solve_double(
+            ciphertext, scorer=self.scorer, top=3,
+            max_key_length=3, seed=1, restarts=6, iterations=15_000,
+        )
+        self.assertEqual(result.best().plaintext, self.plaintext)
+        best = result.best()
+        self.assertEqual(best.diagnostics["first_key_length"], 3)
+        self.assertEqual(best.diagnostics["second_key_length"], 2)
+
+    def test_the_key_is_reported_so_the_answer_can_be_checked(self) -> None:
+        ciphertext = encrypt_double(self.plaintext, "KEYS", "CAB")
+        best = solve_double(
+            ciphertext, scorer=self.scorer, top=1,
+            first_length=4, second_length=3, seed=1, **self.CHEAP,
+        ).best()
+        # The invariant is that the key it SHOWS you reproduces the answer it
+        # SHOWS you. A reported key that does not regenerate the reported
+        # plaintext is unfalsifiable, and a competition answer nobody can
+        # check by hand is worthless whether or not it happens to be right.
+        recovered = decrypt_double(
+            ciphertext,
+            best.diagnostics["first_permutation"],
+            best.diagnostics["second_permutation"],
+        )
+        self.assertEqual(recovered, best.plaintext)
+
+    def test_it_never_claims_the_search_was_exhaustive(self) -> None:
+        """It is a randomised climb. Saying otherwise would be a lie."""
+        ciphertext = encrypt_double(self.plaintext, "KEYS", "CAB")
+        best = solve_double(
+            ciphertext, scorer=self.scorer, top=1,
+            first_length=4, second_length=3, seed=1, **self.CHEAP,
+        ).best()
+        self.assertIn("not exhaustive", best.diagnostics["search"])
+
+    def test_the_seed_makes_a_run_reproducible(self) -> None:
+        ciphertext = encrypt_double(self.plaintext, "MONARCH", "BERLIN")
+        options = dict(scorer=self.scorer, top=1, first_length=7,
+                       second_length=6, seed=17, **self.CHEAP)
+        first = solve_double(ciphertext, **options).best()
+        second = solve_double(ciphertext, **options).best()
+        self.assertEqual(first.plaintext, second.plaintext)
+        self.assertEqual(first.key, second.key)
+
+    def test_a_time_budget_is_honoured_and_recorded(self) -> None:
+        ciphertext = encrypt_double(self.plaintext, "MONARCH", "BERLIN")
+        started = time.monotonic()
+        result = solve_double(
+            ciphertext, scorer=self.scorer, top=3,
+            max_key_length=8, seed=1, time_budget=1.0,
+        )
+        elapsed = time.monotonic() - started
+        self.assertLess(elapsed, 20.0, "the budget must actually stop it")
+        if result:
+            self.assertTrue(
+                any(c.diagnostics.get("time_budget_hit")
+                    for c in result.ranked())
+            )
+
+    def test_random_letters_are_not_reported_as_solved(self) -> None:
+        """The honesty bar this whole toolkit is built around."""
+        rng = random.Random(11)
+        noise = "".join(
+            rng.choice("ABCDEFGHIJKLMNOPQRSTUVWXYZ") for _ in range(300)
+        )
+        best = solve_double(
+            noise, scorer=self.scorer, top=1,
+            first_length=4, second_length=3, seed=1, **self.CHEAP,
+        ).best()
+        if best is not None:
+            self.assertNotEqual(best.confidence(), "strong")
+
+    def test_empty_input_is_not_a_crash(self) -> None:
+        self.assertEqual(len(solve_double("", scorer=self.scorer)), 0)
+
+    def test_the_pipeline_reaches_it_at_deep_and_not_before(self) -> None:
+        """A solver nothing calls is decoration.
+
+        The measured failure that prompted all this was `auto --deep` giving
+        a `promising` and WRONG reading of a double columnar message, so the
+        fix is only real if the pipeline actually runs this.
+        """
+        from cipher_tool.auto import build_stages
+
+        for effort in ("fast", "normal"):
+            names = [stage.name for stage in build_stages(effort, 5, 1)]
+            self.assertNotIn("double columnar", names,
+                             f"too expensive to run at {effort}")
+        deep = [stage for stage in build_stages("deep", 5, 1)
+                if stage.name == "double columnar"]
+        self.assertEqual(len(deep), 1)
+        self.assertIsNotNone(
+            deep[0].options.get("time_budget"),
+            "unbounded, this stage would run for hours without max_time",
+        )
+
+    def test_the_pipeline_actually_solves_one(self) -> None:
+        from cipher_tool.auto import auto_solve, build_stages
+
+        stage = [s for s in build_stages("deep", 5, 1)
+                 if s.name == "double columnar"]
+        ciphertext = encrypt_double(self.plaintext, "KEY", "CA")
+        result = auto_solve(ciphertext, scorer=self.scorer, effort="deep",
+                            top=3, seed=1, stages=stage)
+        self.assertEqual(result.candidates.best().plaintext, self.plaintext)
 
 
 if __name__ == "__main__":

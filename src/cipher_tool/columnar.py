@@ -131,6 +131,49 @@ GREEDY_PATTERN_LIMIT = 60
 
 METHOD = "Columnar transposition"
 
+#: Ceiling on EACH key length when :func:`solve_double` is not told them.
+#: Both keys are searched together, so the number of shapes grows with the
+#: square of this: 8 means 49 shapes, which the time budget has to ration.
+DEFAULT_MAX_DOUBLE_KEY = 8
+
+#: Annealing steps in one restart of the double attack. MEASURED on 400
+#: letters: 30,000 steps recovered a 7x6 key pair within six restarts in
+#: about six seconds; markedly shorter runs did not converge.
+DEFAULT_DOUBLE_ITERATIONS = 30_000
+
+#: Randomised restarts per shape. Each begins from a fresh random pair of
+#: permutations, because the climb has local optima and a single run is a
+#: coin toss rather than a search.
+#:
+#: Twelve rather than six, and the difference is not cosmetic. MEASURED on a
+#: 7x6 key pair over 400 letters: six restarts of 30,000 steps returned a
+#: near miss -- the plaintext with eight letters dragged onto the front --
+#: while twelve restarts of the same length found the key. Diversification
+#: beats persistence on this landscape: six restarts of 80,000 steps cost
+#: two and a half times as much as twelve of 30,000 and were no more
+#: reliable. Twelve restarts is roughly forty seconds on that message, which
+#: is the price of not quietly missing keys a competition actually uses.
+DEFAULT_DOUBLE_RESTARTS = 12
+
+#: Starting temperature for the annealing schedule, in the units of the
+#: scorer's total log score. High enough to leave a local optimum early, low
+#: enough that the climb settles before its steps run out.
+DOUBLE_START_TEMPERATURE = 12.0
+
+#: A reading at or above this score per letter is English past reasonable
+#: doubt, and the search stops rather than spending the rest of its budget
+#: confirming what it has. Deliberately the same threshold the confidence
+#: label uses for `strong`, so the search can never stop early on a reading
+#: it would then go on to hedge about.
+DOUBLE_GOOD_ENOUGH = -1.15
+
+#: How many shapes survive the cheap screening pass and get the full search.
+#: More than one because the screen is short and its ranking is noisy; few,
+#: because the whole point is to stop spreading the budget thinly.
+DOUBLE_REFINE_SHAPES = 3
+
+METHOD_DOUBLE = "Double columnar transposition"
+
 
 # ---------------------------------------------------------------------------
 # Keys
@@ -930,6 +973,338 @@ def solve(
 
     if top is not None and top > 0:
         return CandidateSet(results.top(top))
+    return results
+
+
+def _anneal_double(
+    letters: str,
+    first_count: int,
+    second_count: int,
+    engine: EnglishScorer,
+    generator: random.Random,
+    iterations: int,
+    deadline: float | None,
+) -> tuple[float, tuple[int, ...], tuple[int, ...]]:
+    """One annealing run over BOTH permutations at once.
+
+    A single columnar is broken by column-pair statistics: neighbouring grid
+    columns sit next to each other on every row, so the right arrangement can
+    be assembled a pair at a time without ever scoring a whole candidate. Two
+    passes destroy exactly that structure -- :func:`encrypt_double` says so in
+    its own docstring -- and with it the only cheap signal. What is left is
+    the score of the finished plaintext, which means searching the two
+    permutations together and accepting the cost of a full rescore per step.
+
+    Annealing rather than plain hill climbing because the landscape is full
+    of local optima: a permutation one swap away from correct usually scores
+    no better than one ten swaps away, so a greedy climb stalls almost
+    immediately. Accepting a worse arrangement early, with a probability that
+    falls as the run proceeds, is what gets past that.
+    """
+    first = list(range(first_count))
+    second = list(range(second_count))
+    generator.shuffle(first)
+    generator.shuffle(second)
+
+    def plaintext_for() -> str:
+        return decrypt(decrypt(letters, tuple(second)), tuple(first))
+
+    current = engine.score(plaintext_for())
+    best = current
+    best_keys = (tuple(first), tuple(second))
+
+    # Which key to mutate is chosen in proportion to its length, so every
+    # column gets the same attention whether it sits in the long key or the
+    # short one.
+    first_share = first_count / (first_count + second_count)
+
+    for step in range(iterations):
+        if deadline is not None and step % 256 == 0 and time.monotonic() > deadline:
+            break
+
+        target = first if generator.random() < first_share else second
+        if len(target) < 2:
+            continue
+        left = generator.randrange(len(target))
+        right = generator.randrange(len(target))
+        if left == right:
+            continue
+
+        # Two kinds of move, because swaps alone search badly here. Swapping
+        # two columns changes the position of exactly two of them; a key that
+        # is right except for one column sitting one place too early needs
+        # every column after it to shift, which no single swap can do and a
+        # chain of swaps only reaches through worse-scoring intermediates.
+        # Lifting a column out and reinserting it elsewhere makes that whole
+        # family of near misses a single move away.
+        displaced = generator.random() < 0.5
+        if displaced:
+            target.insert(right, target.pop(left))
+        else:
+            target[left], target[right] = target[right], target[left]
+
+        candidate = engine.score(plaintext_for())
+        delta = candidate - current
+        temperature = (
+            DOUBLE_START_TEMPERATURE * (1.0 - step / iterations) + 0.01
+        )
+        if delta >= 0 or generator.random() < math.exp(delta / temperature):
+            current = candidate
+            if candidate > best:
+                best = candidate
+                best_keys = (tuple(first), tuple(second))
+        elif displaced:
+            # Undo the lift-and-insert: the element is now at `right`.
+            target.insert(left, target.pop(right))
+        else:
+            target[left], target[right] = target[right], target[left]
+
+    return best, best_keys[0], best_keys[1]
+
+
+def _double_shapes(
+    first_length: int | None,
+    second_length: int | None,
+    max_key_length: int,
+) -> list[tuple[int, int]]:
+    """Key-length pairs to try, likeliest first.
+
+    Ordering matters more here than anywhere else in the module, because the
+    pair count grows as the square of the ceiling and a time budget will
+    almost never reach the end of the list. Whatever is tried first is, in
+    practice, what gets tried.
+
+    So the order is by how likely a length is to be a real key, not by how
+    cheap it is to search. Both keys come from KEYWORDS, and keywords are
+    words: four to nine letters is the ordinary range, three is uncommon and
+    two is vanishingly rare. MEASURED: ordering by total width instead --
+    cheapest first, which looks like the sensible thing -- spent a 40 second
+    budget on the nine smallest shapes and never reached the 4x3 pair that
+    held the answer. Sorting plausible lengths first found it inside the same
+    budget. Cheapest-first optimises the wrong thing: it minimises the cost
+    of failing rather than the time to succeed.
+
+    Within equally plausible shapes the smaller pair still goes first, since
+    between two equally likely guesses the quicker one is worth having back
+    sooner.
+    """
+    if first_length is not None and second_length is not None:
+        return [(first_length, second_length)]
+
+    firsts = ([first_length] if first_length is not None
+              else list(range(2, max_key_length + 1)))
+    seconds = ([second_length] if second_length is not None
+               else list(range(2, max_key_length + 1)))
+
+    def implausibility(count: int) -> int:
+        if 4 <= count <= 9:
+            return 0        # ordinary keyword lengths
+        if count == 3:
+            return 1        # uncommon, but real
+        if count == 2:
+            return 3        # essentially never a chosen keyword
+        return 2            # very long keys: possible, rarely used
+
+    pairs = [(m, n) for m in firsts for n in seconds]
+    return sorted(
+        pairs,
+        key=lambda pair: (
+            implausibility(pair[0]) + implausibility(pair[1]),
+            pair[0] + pair[1],
+            pair[0],
+        ),
+    )
+
+
+def solve_double(
+    source: str | NormalizedText,
+    *,
+    scorer: EnglishScorer | None = None,
+    top: int = 5,
+    **options: Any,
+) -> CandidateSet:
+    """Attack TWO passes of columnar transposition. Ranked candidates only.
+
+    The single-pass attack cannot do this and does not pretend to: after the
+    second pass, letters that were neighbours in a plaintext row are no
+    longer a fixed distance apart in the ciphertext, so the column-pair
+    statistics it relies on have nothing to lock onto. Measured before this
+    existed, the pipeline handed back a ``promising`` reading of a double
+    columnar message that was wrong -- confident and incorrect together,
+    which is the pairing this toolkit exists to avoid.
+
+    This is a randomised search and says so in every candidate it returns.
+    Unlike the single-pass solver there is no exhaustive mode to fall back
+    on: two permutations of eight columns are 40,320 squared, so nothing here
+    can be enumerated and a run that finds nothing is not proof of absence.
+
+    Options
+    -------
+    first_length, second_length:
+        Pin one or both key lengths, when a crib or the story gives them.
+    max_key_length:
+        Otherwise try every length from 2 up to this, for both keys
+        (default :data:`DEFAULT_MAX_DOUBLE_KEY`).
+    restarts, iterations:
+        Randomised restarts per shape, and annealing steps per restart.
+    time_budget:
+        Seconds. The search stops cleanly and records ``time_budget_hit``.
+    seed:
+        Seeds the private generator, so a run is reproducible.
+    """
+    engine = scorer or default_scorer()
+    text = source if isinstance(source, NormalizedText) else normalize(source)
+    letters = text.letters
+    length = len(letters)
+
+    first_length = options.pop("first_length", None)
+    second_length = options.pop("second_length", None)
+    max_key_length = _option_int(
+        options.pop("max_key_length", None), "max_key_length",
+        DEFAULT_MAX_DOUBLE_KEY, 2,
+    )
+    restarts = _option_int(
+        options.pop("restarts", None), "restarts", DEFAULT_DOUBLE_RESTARTS, 1,
+    )
+    iterations = _option_int(
+        options.pop("iterations", None), "iterations",
+        DEFAULT_DOUBLE_ITERATIONS, 100,
+    )
+    time_budget = options.pop("time_budget", None)
+    seed = options.pop("seed", None)
+    if options:
+        raise ValueError(
+            f"unknown option(s) for double columnar: "
+            f"{', '.join(sorted(options))}"
+        )
+
+    results = CandidateSet(source_letters=letters)
+    if length < 4:
+        return results
+
+    for name, value in (("first_length", first_length),
+                        ("second_length", second_length)):
+        if value is not None:
+            _check_int(value, name, 2)
+
+    deadline = (time.monotonic() + float(time_budget)
+                if time_budget is not None else None)
+    generator = random.Random(seed)
+    shapes = _double_shapes(first_length, second_length, max_key_length)
+
+    budget_hit = False
+    shapes_tried = 0
+    shapes = [pair for pair in shapes
+              if pair[0] <= length and pair[1] <= length]
+    shapes_available = len(shapes)
+    shapes_screened = 0
+
+    # When the lengths are not known, searching each shape to full depth in
+    # turn spends the whole budget on the first two or three. MEASURED: a 40
+    # second budget over shapes costing ten seconds each reached four of
+    # twenty-five, and the answer was in the ninth. Screen every shape
+    # cheaply first, then spend the real effort on the few that look like
+    # anything -- a wrong shape cannot produce English however long it is
+    # climbed, so a short run separates it from a right one well enough to
+    # rank. With the lengths pinned there is nothing to screen and the full
+    # search starts immediately.
+    if len(shapes) > 1:
+        screen_iterations = max(2_000, iterations // 8)
+        scored: list[tuple[float, tuple[int, int]]] = []
+        for pair in shapes:
+            if deadline is not None and time.monotonic() > deadline:
+                budget_hit = True
+                break
+            best_seen = float("-inf")
+            for _ in range(2):
+                score, _first, _second = _anneal_double(
+                    letters, pair[0], pair[1], engine, generator,
+                    screen_iterations, deadline,
+                )
+                best_seen = max(best_seen, score)
+            scored.append((best_seen, pair))
+            shapes_screened += 1
+        scored.sort(key=lambda item: item[0], reverse=True)
+        shapes = [pair for _score, pair in scored[:DOUBLE_REFINE_SHAPES]]
+
+    for first_count, second_count in shapes:
+        if deadline is not None and time.monotonic() > deadline:
+            budget_hit = True
+            break
+        shapes_tried += 1
+
+        best_score = float("-inf")
+        best_first: tuple[int, ...] = ()
+        best_second: tuple[int, ...] = ()
+        for _ in range(restarts):
+            if deadline is not None and time.monotonic() > deadline:
+                budget_hit = True
+                break
+            score, first, second = _anneal_double(
+                letters, first_count, second_count, engine, generator,
+                iterations, deadline,
+            )
+            if score > best_score:
+                best_score, best_first, best_second = score, first, second
+            # Deliberately NO early exit here. A run that lands one swap
+            # short of the key produces mostly-correct English, which clears
+            # any "good enough" bar you would want to set -- MEASURED: on a
+            # 7x6 pair the first restart returned the plaintext with eight
+            # letters transposed onto the front, scored well past the strong
+            # threshold, and stopping there returned it as the answer. Every
+            # restart runs, and the best of them wins.
+
+        if not best_first:
+            continue
+
+        plaintext = decrypt(decrypt(letters, best_second), best_first)
+        diagnostics: dict[str, Any] = {
+            "first_key_length": first_count,
+            "second_key_length": second_count,
+            "first_permutation": best_first,
+            "second_permutation": best_second,
+            "search": (
+                f"simulated annealing, {restarts} restarts x {iterations} "
+                "steps (not exhaustive)"
+            ),
+            "restarts": restarts,
+        }
+        annotate(diagnostics, plaintext, engine)
+        results.add(
+            Candidate(
+                method=METHOD_DOUBLE,
+                key=(
+                    f"first={keyword_from_order(best_first) or best_first} "
+                    f"({first_count}), "
+                    f"second={keyword_from_order(best_second) or best_second} "
+                    f"({second_count})"
+                ),
+                score=engine.score(plaintext),
+                plaintext=plaintext,
+                diagnostics=diagnostics,
+                # A transposition moves letters, so position i of the
+                # plaintext did not come from position i of the ciphertext.
+                display=group_text(plaintext),
+            )
+        )
+
+        if best_score / length >= DOUBLE_GOOD_ENOUGH:
+            break
+
+    for candidate in results.ranked():
+        # Coverage is reported against every shape the caller asked for, not
+        # against the shortlist the screen produced. Reporting "1 of 3" after
+        # narrowing 25 shapes to 3 would describe the last step of the search
+        # as if it were the whole of it.
+        candidate.diagnostics["shapes_fully_searched"] = shapes_tried
+        candidate.diagnostics["shapes_screened"] = shapes_screened
+        candidate.diagnostics["shapes_available"] = shapes_available
+        candidate.diagnostics["length"] = length
+        if budget_hit:
+            candidate.diagnostics["time_budget_hit"] = True
+
+    if top is not None and top > 0:
+        return CandidateSet(results.top(top), source_letters=letters)
     return results
 
 

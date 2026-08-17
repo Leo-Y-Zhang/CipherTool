@@ -12,6 +12,34 @@ nothing to publish to.
 Add entries here as you work. Suggested headings: `Added`, `Changed`,
 `Fixed`, `Removed`.
 
+### Added
+
+- **A solver for DOUBLE columnar transposition** (`columnar.solve_double`,
+  `cipher_tool columnar --double`, and a `--deep` pipeline stage). Measured
+  before it existed: `auto --deep` on a double columnar message returned a
+  `promising` reading that was wrong, which is the worst pairing this toolkit
+  can produce. It now solves the same message at `strong` in about a minute,
+  and `ALGORITHMS.md` no longer claims there is no solver.
+
+  The single-pass attack cannot be reused, for the reason `encrypt_double`
+  already gave: after the second pass, letters that were neighbours in a
+  plaintext row are no longer a fixed distance apart, so column-pair
+  statistics have nothing to lock onto. Both permutations are therefore
+  searched together by simulated annealing on the full plaintext score.
+  Three design points were measured, not guessed: a lift-and-reinsert move as
+  well as swaps, because a key off by one position cannot be repaired by
+  swapping; twelve restarts rather than six, because diversification beat
+  persistence (six restarts of 80,000 steps cost more than twelve of 30,000
+  and were less reliable); and a cheap screening pass over every length pair
+  before any is searched deeply, because depth-first spent a 40 second budget
+  on four shapes of twenty-five when the answer was in the ninth -- screening
+  found it in 21 seconds. Shapes are ordered by how likely a length is to be
+  a real keyword, not by how cheap it is to try.
+
+  **The search is randomised and never exhaustive**, and every candidate says
+  so: two permutations of eight columns are 40,320 squared. A run that finds
+  nothing is not evidence that there is nothing to find.
+
 ### Changed
 
 - **The paste flow now climbs the effort ladder by itself, and only stops on
