@@ -99,6 +99,11 @@ Then choose:
 Press Enter and it searches harder (`fast` to `normal` to `deep`). Press
 `s` for the command shell when you want to drive it yourself.
 
+**Paste another ciphertext straight at that prompt** and it is taken as a
+new message rather than a menu key -- you do not have to press `n` first.
+Anything else it does not recognise it says so, instead of quietly doing
+something you did not ask for.
+
 **If it cannot solve your message it says so**, rather than dressing up its
 best guess as an answer:
 

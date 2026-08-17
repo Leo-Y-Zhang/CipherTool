@@ -696,3 +696,82 @@ class TestPasteSession(unittest.TestCase):
     def test_quit_leaves_immediately(self) -> None:
         output = self._paste(caesar.encrypt(sample_plaintext(120), 3), "", "q")
         self.assertNotIn("Searching harder", output)
+
+
+def paste_session(*lines: str) -> str:
+    """Drive the paste flow with a scripted stdin and capture its output."""
+    script = io.StringIO("\n".join(lines) + "\n")
+    buffer = io.StringIO()
+    original = sys.stdin
+    sys.stdin = script
+    try:
+        with contextlib.redirect_stdout(buffer), \
+                contextlib.redirect_stderr(buffer):
+            cli.main(["paste"])
+    finally:
+        sys.stdin = original
+    return buffer.getvalue()
+
+
+class TestPasteMenuDoesNotSwallowInput(unittest.TestCase):
+    """The answer menu must not silently eat what is typed at it.
+
+    Found by watching a real first run. The menu loop ended with
+
+        # Anything else, including a bare Enter, means "search harder".
+
+    so every unrecognised input became "try harder" with no reply. Two
+    separate failures came out of that one line:
+
+    1. Someone who has just been told their paste was not encrypted pastes
+       the REAL ciphertext at the ``>`` prompt -- the obvious thing to do,
+       since the prompt is where you type. The message was discarded without
+       a word, and the tool re-searched the previous text. The user watched
+       it think for a while and print an answer, so nothing looked wrong;
+       the answer just had nothing to do with what they pasted.
+    2. Typing anything else -- a stray line copied off the page, a comment --
+       silently advanced the effort level, and once at 'deep' printed
+       "Already searched as hard as this tool goes" no matter what was typed.
+       The menu looked broken because it never said "I do not know that one".
+    """
+
+    def _corpus(self) -> tuple[str, str]:
+        corpus = sample_plaintext(400)
+        return corpus[:150], corpus[200:350]
+
+    def test_a_ciphertext_pasted_at_the_menu_is_solved_not_discarded(self) -> None:
+        first_plain, second_plain = self._corpus()
+        output = paste_session(
+            caesar.encrypt(first_plain, 3), "",
+            caesar.encrypt(second_plain, 7), "",
+            "q",
+        )
+        collapsed = "".join(output.split())
+        self.assertIn(second_plain[:60], collapsed,
+                      "the second message must actually be solved")
+
+    def test_a_multi_line_ciphertext_at_the_menu_is_one_message(self) -> None:
+        """A website paste arrives as several lines, not one."""
+        first_plain, second_plain = self._corpus()
+        second = caesar.encrypt(second_plain, 7)
+        groups = [second[i:i + 25] for i in range(0, len(second), 25)]
+        output = paste_session(
+            caesar.encrypt(first_plain, 3), "",
+            *groups, "",
+            "q",
+        )
+        collapsed = "".join(output.split())
+        self.assertIn(second_plain[:60], collapsed)
+
+    def test_unrecognised_input_is_answered_not_silently_obeyed(self) -> None:
+        first_plain, _ = self._corpus()
+        output = paste_session(caesar.encrypt(first_plain, 3), "",
+                               "Mea culpa", "q")
+        self.assertIn("not one of the options", output)
+        self.assertNotIn("Searching harder", output)
+
+    def test_a_bare_enter_still_means_try_harder(self) -> None:
+        """The fix must not break the documented behaviour of the menu."""
+        first_plain, _ = self._corpus()
+        output = paste_session(caesar.encrypt(first_plain, 3), "", "", "q")
+        self.assertIn("Searching harder", output)

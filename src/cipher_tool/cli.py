@@ -56,6 +56,7 @@ from .candidates import Candidate, CandidateSet, render_candidates
 from .normalize import (
     ALPHABET_SIZE,
     group_text,
+    letters_only,
     normalize,
     strip_bom,
     NormalizedText,
@@ -1063,7 +1064,10 @@ The loaded ciphertext is reused, so you do not retype it.
 SHELL_OPERANDS = {"crib": "crib"}
 
 
-def read_pasted_ciphertext(prompt: str | None = None) -> str:
+def read_pasted_ciphertext(
+    prompt: str | None = None,
+    first_line: str | None = None,
+) -> str:
     """Read a ciphertext pasted over several lines, ending at a blank line.
 
     Competition ciphertext arrives as a block of five-letter groups spread
@@ -1072,10 +1076,18 @@ def read_pasted_ciphertext(prompt: str | None = None) -> str:
     separate command and reports a string of errors, which is a miserable
     way to meet a tool. So this reads until a blank line (or end of input)
     and treats everything before it as one message.
+
+    *first_line* is for the case where the caller has already read the first
+    line and only then realised it was a message. The answer menu does
+    exactly that: a ciphertext pasted at its prompt must not cost the user
+    the line they had already typed, and the REST of that paste is still
+    arriving on the lines behind it.
     """
     if prompt:
         print(prompt)
     lines: list[str] = []
+    if first_line is not None and first_line.strip():
+        lines.append(first_line)
     while True:
         try:
             line = input()
@@ -1093,6 +1105,19 @@ def read_pasted_ciphertext(prompt: str | None = None) -> str:
             return ""
         lines.append(line)
     return "\n".join(lines)
+
+
+#: Letters that must appear on a line typed at the answer menu before it is
+#: read as a pasted message rather than a mistyped menu key. Every menu key is
+#: a single letter and the longest word on that menu is "quit", so the gap
+#: between the two is wide; this sits well clear of both, and well below the
+#: shortest line of a ciphertext anyone would paste.
+MENU_MESSAGE_LETTERS = 20
+
+
+def _looks_like_a_pasted_message(line: str) -> bool:
+    """True when a line typed at the answer menu is really a ciphertext."""
+    return len(letters_only(line)) >= MENU_MESSAGE_LETTERS
 
 
 #: How much of a plaintext must fall inside recognised words before the
@@ -1268,10 +1293,24 @@ def run_paste_session(args: argparse.Namespace) -> int:
     print("=" * 72)
     print(f"  {PROGRAM} {__version__}  --  paste a message, get the plaintext")
     print("=" * 72)
+    return _paste_message(args, None)
 
+
+def _paste_message(
+    args: argparse.Namespace,
+    first_line: str | None,
+) -> int:
+    """Read one message, solve it, and run the answer menu over it.
+
+    Split out from the banner so that starting a new message does not reprint
+    the header, and so a ciphertext pasted at the answer menu can be handed
+    straight back in as *first_line*.
+    """
     text = read_pasted_ciphertext(
         "\n  Paste your ciphertext below (any layout -- five-letter groups\n"
         "  and line breaks are fine), then press Enter on a BLANK line.\n"
+        if first_line is None else None,
+        first_line=first_line,
     )
     normalized = normalize(text)
     if normalized.is_empty:
@@ -1302,10 +1341,13 @@ def run_paste_session(args: argparse.Namespace) -> int:
         print("  [Enter] try harder   [a] all candidates   [w] why (stats)")
         print("  [s] full command shell   [n] new message   [q] quit")
         try:
-            choice = input("  > ").strip().lower()
+            typed = input("  > ")
         except (EOFError, KeyboardInterrupt):
             print()
             return 0
+        # The raw line is kept because a ciphertext can arrive at this prompt,
+        # and lower-casing it would destroy the message.
+        choice = typed.strip().lower()
 
         if choice in {"q", "quit", "exit"}:
             return 0
@@ -1348,9 +1390,30 @@ def run_paste_session(args: argparse.Namespace) -> int:
             args.input = None
             return run_shell(args)
         if choice in {"n", "new"}:
-            return run_paste_session(args)
+            return _paste_message(args, None)
 
-        # Anything else, including a bare Enter, means "search harder".
+        # A ciphertext pasted at this prompt is the commonest thing to arrive
+        # here that is not a menu key, and it used to be discarded in silence
+        # while the PREVIOUS message was searched again. Nothing looked wrong:
+        # the tool thought for a while and printed an answer, just not to the
+        # question that had been asked. Treat it as the new message it plainly
+        # is, and go on reading the rest of the paste.
+        if _looks_like_a_pasted_message(typed):
+            print("\n  That looks like a new ciphertext, not a menu choice. "
+                  "Solving it instead.")
+            return _paste_message(args, typed)
+
+        # Anything else typed is a mistake, and saying so beats obeying a
+        # command nobody gave. Silently treating it as "try harder" made the
+        # menu look broken: at 'deep' every keystroke printed the same
+        # already-as-hard-as-it-goes line, whatever had been typed.
+        if choice:
+            print(f"\n  '{typed.strip()}' is not one of the options above.")
+            print("  Press Enter on its own to search harder, [n] for a new "
+                  "message, or [q] to quit.")
+            continue
+
+        # A bare Enter means "search harder".
         if effort == "fast":
             effort = "normal"
         elif effort == "normal":

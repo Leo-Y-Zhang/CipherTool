@@ -434,5 +434,104 @@ class TestCommandLineApiCalls(unittest.TestCase):
             playfair.validate_ciphertext("ABCD")
 
 
+class TestIdentityGuardSurvivesBlockCiphers(unittest.TestCase):
+    """A solver that pads or truncates must not slip past the identity guard.
+
+    Found by running the tool, never by the tests. A block of website
+    navigation text -- 451 letters, obviously never encrypted -- was
+    reported at ``--deep`` as:
+
+        Cipher      : Hill 2x2 (exhaustive search)
+        Key         : key=BAAB matrix=[[1,0],[0,1]]
+        Confidence  : strong
+
+    That matrix is the identity. Hill 2x2 works on letter pairs, so on an
+    odd-length input it hands back 450 letters, and the guard's exact
+    ``plaintext == source_letters`` comparison therefore did not recognise
+    it. Worse, the truncated identity OUTSCORED the exact ones -- one letter
+    fewer at the same score per letter -- so it took first place and turned
+    the whole "does not appear to be encrypted" warning off. Caesar shift 0,
+    Vigenere AA, variant Beaufort A and affine a=1 b=0 were then all
+    presented as ``strong`` answers underneath it.
+
+    The guard existed and was correct; one solver's block size walked around
+    it. That is why this test works on the length relationship rather than on
+    any particular cipher.
+    """
+
+    def test_a_truncated_identity_is_still_an_identity(self) -> None:
+        from cipher_tool.candidates import Candidate, CandidateSet
+
+        source = sample(451)
+        self.assertEqual(len(source) % 2, 1, "the bug needs an odd length")
+
+        found = CandidateSet(source_letters=source)
+        hill = found.add(Candidate(
+            method="Hill 2x2 (exhaustive search)",
+            key="key=BAAB matrix=[[1,0],[0,1]]",
+            score=-456.80,
+            plaintext=source[:450],
+        ))
+        self.assertTrue(
+            found.is_identity(hill),
+            "dropping the odd letter is not a decryption",
+        )
+        self.assertTrue(found.looks_unencrypted())
+        self.assertEqual(found.corroborations(), [])
+
+    def test_a_padded_identity_is_still_an_identity(self) -> None:
+        """The other half: solvers that pad instead of truncating."""
+        from cipher_tool.candidates import Candidate, CandidateSet
+
+        source = sample(451)
+        found = CandidateSet(source_letters=source)
+        padded = found.add(Candidate(
+            method="Playfair",
+            key="identity square",
+            score=-457.0,
+            plaintext=source + "X",
+        ))
+        self.assertTrue(found.is_identity(padded))
+
+    def test_a_real_decryption_of_the_same_length_is_not_an_identity(self) -> None:
+        """The fix must not start calling genuine answers 'not encrypted'.
+
+        A tolerance that ignored the tail could swallow a real solve. This
+        pins the other direction.
+        """
+        from cipher_tool import caesar
+        from cipher_tool.candidates import Candidate, CandidateSet
+
+        source = sample(451)
+        found = CandidateSet(source_letters=source)
+        genuine = found.add(Candidate(
+            method="Caesar shift",
+            key="shift=3",
+            score=-400.0,
+            plaintext=caesar.encrypt(source, 3)[:450],
+        ))
+        self.assertFalse(found.is_identity(genuine))
+        self.assertFalse(found.looks_unencrypted())
+
+    def test_the_deep_pipeline_still_says_it_is_not_encrypted(self) -> None:
+        """The operator's actual run, end to end.
+
+        ``--fast`` caught this and ``--deep`` did not, which is the worst
+        possible arrangement: searching harder made the tool more confident
+        and less correct.
+        """
+        from cipher_tool.auto import auto_solve
+
+        plaintext = sample(451)
+        result = auto_solve(plaintext, effort="deep", top=5, seed=1)
+
+        self.assertTrue(
+            result.candidates.looks_unencrypted(),
+            "a deeper search must not lose the guard a shallow one has",
+        )
+        rendered = result.render(top=5)
+        self.assertIn("DOES NOT APPEAR TO BE ENCRYPTED", rendered)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -167,19 +167,49 @@ class CandidateSet:
         self._index: dict[tuple[str, str], Candidate] = {}
         self.extend(candidates)
 
+    #: How much of the longer text the shared prefix must cover before a
+    #: near-match counts as the input being handed straight back. Deliberately
+    #: a ratio rather than a letter count: a fixed slack that is right for a
+    #: 450-letter message is far too loose for a 20-letter one.
+    _IDENTITY_COVERAGE = 0.9
+
     def is_identity(self, candidate: Candidate) -> bool:
         """True if this candidate's "decryption" returned the input unchanged.
 
         Every cipher family here contains a key that does nothing: Caesar
         shift 0, affine a=1 b=0, Vigenere key AAA, Beaufort key A, Bifid
-        period 1, the identity substitution alphabet. Handed plaintext, every
-        solver finds its own identity key and scores it highly -- correctly,
-        because the text really is English. What would be wrong is presenting
-        that as a decryption, or counting several of them as agreeing.
+        period 1, the identity substitution alphabet, the identity Hill
+        matrix. Handed plaintext, every solver finds its own identity key and
+        scores it highly -- correctly, because the text really is English.
+        What would be wrong is presenting that as a decryption, or counting
+        several of them as agreeing.
+
+        The comparison is deliberately NOT exact equality. Block ciphers work
+        in fixed-size groups, so on a text whose length is not a multiple of
+        the block size they hand back a padded or truncated copy. Hill 2x2 on
+        451 letters returns 450, and an exact test called that a decryption --
+        then ranked it FIRST, because one letter fewer at the same score per
+        letter is a slightly better total, and so switched this guard off for
+        every other candidate too. A solver dropping the odd letter has still
+        decrypted nothing.
+
+        Agreeing on every letter of the shared prefix is what makes this safe:
+        a genuine decryption changes letters, and disagrees within the first
+        few. The coverage ratio then stops a short accidental prefix match
+        from being read as the whole message.
         """
         if self.source_letters is None:
             return False
-        return candidate.plaintext == self.source_letters
+        source = self.source_letters
+        plaintext = candidate.plaintext
+        if plaintext == source:
+            return True
+        shorter, longer = sorted((plaintext, source), key=len)
+        if not shorter:
+            return False
+        if longer[:len(shorter)] != shorter:
+            return False
+        return len(shorter) >= self._IDENTITY_COVERAGE * len(longer)
 
     # -- container protocol ------------------------------------------------
 

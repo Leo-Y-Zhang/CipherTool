@@ -14,6 +14,35 @@ Add entries here as you work. Suggested headings: `Added`, `Changed`,
 
 ### Fixed
 
+- **A block cipher walked around the "not encrypted" guard, and switched it
+  off for everything else.** Found by running the tool on a block of website
+  navigation text -- 451 letters, never encrypted. At `--fast` it correctly
+  said `THIS TEXT DOES NOT APPEAR TO BE ENCRYPTED`; at `--deep` it announced
+  `Hill 2x2, key=BAAB matrix=[[1,0],[0,1]], Confidence: strong`. That matrix
+  is the identity. Hill 2x2 works on letter pairs, so on an odd-length input
+  it hands back 450 letters, and the guard's exact
+  `plaintext == source_letters` test therefore did not recognise it. The
+  truncated identity then OUTSCORED the exact ones -- one letter fewer at the
+  same score per letter is a better total -- took first place, and so turned
+  the warning off for the Caesar shift 0, Vigenere `AA`, variant Beaufort `A`
+  and affine `a=1 b=0` candidates ranked underneath it. Five do-nothing keys,
+  all labelled `strong`. `is_identity` now compares the shared prefix and
+  requires it to cover 90 per cent of the longer text, so padding or
+  truncation no longer hides an identity. Searching harder made the tool more
+  confident and less correct, which is the worst way round for this to fail.
+- **The answer menu silently ate whatever was typed at it.** The loop ended
+  with `# Anything else, including a bare Enter, means "search harder"`, and
+  two separate failures came out of that one line. Pasting the real
+  ciphertext at the `>` prompt -- the obvious thing to do, since the prompt
+  is where you type -- discarded the message without a word and re-searched
+  the PREVIOUS text; the tool thought for a while and printed a confident
+  answer to a question nobody had asked. And any other unrecognised input
+  advanced the effort level in silence, so once at `deep` every keystroke
+  printed the same "already searched as hard as this tool goes" line whatever
+  was typed, which made the menu look broken. A pasted message is now
+  recognised and solved, with the rest of a multi-line paste read along with
+  it, and anything else unrecognised is answered rather than obeyed. A bare
+  Enter still means "search harder".
 - **A short substitution solve could be labelled `strong`.** The confidence
   label reads the plaintext and nothing else, so it could not see that a
   twenty-six letter key has more freedom than a twenty letter ciphertext has
