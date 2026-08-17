@@ -12,8 +12,30 @@ nothing to publish to.
 Add entries here as you work. Suggested headings: `Added`, `Changed`,
 `Fixed`, `Removed`.
 
+### Changed
+
+- **The paste flow now climbs the effort ladder by itself, and only stops on
+  `strong`.** It used to run one `fast` pass, print whatever came back, and
+  tell a user with a weak reading to "try 'normal' or 'deep'" -- options that
+  exist on the command line and not on that screen, where the answer is
+  Enter. On a real competition ciphertext that meant a screenful of gibberish
+  under the headline `BEST ANSWER` and no obvious way forward. Measured on
+  the progressive-shift cipher that prompted this: `fast` weak and wrong,
+  `normal` **promising and still wrong**, `deep` strong and correct -- so
+  escalating only while the reading is `weak` would have stopped at `normal`
+  and returned a confident wrong answer, which is worse than the weak one it
+  replaced. Only `strong` ends the search. Each step announces itself, so a
+  two-minute solve is explained rather than silent. Text that was never
+  encrypted is never escalated: there is no cipher to find, and that is the
+  exact path on which a deeper search used to invent an identity key.
+
 ### Fixed
 
+- **A weak reading was printed in full under the word ANSWER.** Forty-nine
+  lines of gibberish, with the one useful line -- what to do next -- pushed
+  off the screen underneath it. Weak and unlikely readings now show their
+  first 240 letters and say so; `[a]` still prints every candidate in full.
+  The closing advice also stops recommending a search that has already run.
 - **A block cipher walked around the "not encrypted" guard, and switched it
   off for everything else.** Found by running the tool on a block of website
   navigation text -- 451 letters, never encrypted. At `--fast` it correctly

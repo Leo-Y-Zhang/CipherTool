@@ -96,8 +96,12 @@ Then choose:
 [s] full command shell  [n] new message         [q] quit
 ```
 
-Press Enter and it searches harder (`fast` to `normal` to `deep`). Press
-`s` for the command shell when you want to drive it yourself.
+**You do not have to ask it to try harder.** If the first pass does not read
+as clear English the paste screen climbs `fast` to `normal` to `deep` on its
+own, announcing each step, and stops only when a reading scores `strong` or
+the search is exhausted. A long message can take a couple of minutes that
+way. Press Enter to push it further by hand, or `s` for the command shell
+when you want to drive it yourself.
 
 **Paste another ciphertext straight at that prompt** and it is taken as a
 new message rather than a menu key -- you do not have to press `n` first.
@@ -110,9 +114,17 @@ best guess as an answer:
 ```
 BEST ANSWER  (WEAK -- this is probably NOT the plaintext)
   ...
-  This did not score like English. Try 'normal' or 'deep', or check the
-  transcription.
+  ... showing the first 240 letters only. Press [a] for the full text of
+  every candidate.
+  ...
+  This did not score like English, and the search is now exhausted. Check
+  the transcription, or use [s] and a crib from the story -- 'crib THE' --
+  which is worth more than more searching.
 ```
+
+A reading it does not believe is shown as a preview, not poured out in full:
+a screenful of gibberish under the word ANSWER reads like an answer, and
+buries the line that tells you what to do next.
 
 **On a Mac**, the very first time, macOS will refuse to open a downloaded
 script. Right-click `cipher_tool.command`, choose **Open**, then click

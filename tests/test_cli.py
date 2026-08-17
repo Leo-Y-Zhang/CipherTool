@@ -775,3 +775,84 @@ class TestPasteMenuDoesNotSwallowInput(unittest.TestCase):
         first_plain, _ = self._corpus()
         output = paste_session(caesar.encrypt(first_plain, 3), "", "", "q")
         self.assertIn("Searching harder", output)
+
+
+#: A progressive-shift (Trithemius) cipher, expressed as the 26-letter
+#: Vigenere key it is equivalent to. This is what National Cipher Challenge
+#: 2025 challenge 10B turned out to be, and it is the case that exposed the
+#: paste flow stopping short of the answer.
+PROGRESSIVE_SHIFT_KEY = "DEFGHIJKLMNOPQRSTUVWXYZABC"
+
+
+class TestPasteFlowReachesTheAnswerItself(unittest.TestCase):
+    """Paste in, answer out. The user should not have to drive the search.
+
+    The paste flow ran one `fast` pass and printed whatever came back, even
+    when it knew the reading was weak. On a real competition ciphertext that
+    meant a screenful of gibberish under the headline BEST ANSWER, plus an
+    instruction to try 'normal' or 'deep' -- which in this screen means
+    pressing Enter, something the message never said. The tool had the answer
+    within reach and asked the user to go and get it.
+    """
+
+    def test_promising_is_not_good_enough_to_stop_on(self) -> None:
+        """The trap that makes the obvious fix wrong.
+
+        Escalating only while the reading is 'weak' looks right and is not.
+        Measured on the progressive-shift cipher below: `fast` gives weak and
+        wrong, `normal` gives PROMISING and still wrong, `deep` gives strong
+        and correct. Stopping at the first non-weak label would hand back a
+        confident-sounding wrong answer -- worse than the weak one, because
+        the label no longer warns anybody.
+        """
+        self.assertTrue(cli._should_search_harder("unlikely"))
+        self.assertTrue(cli._should_search_harder("weak"))
+        self.assertTrue(cli._should_search_harder("promising"))
+        self.assertFalse(cli._should_search_harder("strong"))
+
+    def test_a_cipher_fast_cannot_solve_is_escalated_without_being_asked(self) -> None:
+        from cipher_tool import vigenere
+
+        plain = sample_plaintext(600)
+        ciphertext = vigenere.encrypt(plain, PROGRESSIVE_SHIFT_KEY)
+        # Nothing typed but the ciphertext and a quit: no Enter presses.
+        output = paste_session(ciphertext, "", "q")
+        collapsed = "".join(output.split())
+        self.assertIn(plain[:60], collapsed,
+                      "the flow must reach the answer on its own")
+        self.assertIn("(deep)", output,
+                      "it must not stop at 'normal', which is wrong here")
+
+    def test_a_message_solved_at_fast_is_not_searched_again(self) -> None:
+        """Escalation must cost nothing when the first pass already won."""
+        output = paste_session(caesar.encrypt(sample_plaintext(200), 3),
+                               "", "q")
+        self.assertNotIn("Searching harder", output)
+
+    def test_text_that_was_never_encrypted_is_not_escalated(self) -> None:
+        """Nothing is gained by searching harder for a cipher that is absent,
+        and this is the exact path where a deeper search used to invent one.
+        """
+        output = paste_session(sample_plaintext(300), "", "q")
+        self.assertIn("DOES NOT APPEAR TO BE ENCRYPTED", output)
+        self.assertNotIn("Searching harder", output)
+
+    def test_a_weak_reading_is_not_printed_in_full(self) -> None:
+        """A screenful of gibberish is not an answer, and printing it under
+        the word ANSWER buries the one line that actually helps.
+        """
+        import random
+
+        from cipher_tool.auto import auto_solve
+
+        generator = random.Random(4)
+        noise = "".join(generator.choice("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+                        for _ in range(300))
+        result = auto_solve(noise, effort="fast", top=5, seed=1)
+        rendered = cli._render_answer(result)
+        best = result.candidates.best()
+
+        self.assertNotIn("".join(best.plaintext[-40:].split()),
+                         "".join(rendered.split()),
+                         "the whole wrong plaintext should not be dumped")
+        self.assertIn("probably NOT the plaintext", rendered)

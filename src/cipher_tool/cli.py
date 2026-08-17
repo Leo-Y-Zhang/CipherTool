@@ -1107,6 +1107,26 @@ def read_pasted_ciphertext(
     return "\n".join(lines)
 
 
+#: The search efforts, cheapest first. Climbing this is what "try harder"
+#: means, whether the user asks or the paste flow does it for them.
+EFFORT_LADDER = ("fast", "normal", "deep")
+
+
+def _should_search_harder(confidence: str) -> bool:
+    """True while a reading is not good enough to stop on.
+
+    Only ``strong`` ends the search, and the reason is worth stating because
+    the obvious alternative is wrong. Measured on a progressive-shift cipher
+    (National Cipher Challenge 2025, challenge 10B): ``fast`` returned a weak
+    reading that was wrong, ``normal`` returned a PROMISING reading that was
+    still wrong, and only ``deep`` was correct. Stopping as soon as the label
+    climbs out of ``weak`` would therefore hand back a confident-sounding
+    wrong answer -- worse than the weak one it replaced, because the label no
+    longer warns anybody.
+    """
+    return confidence != "strong"
+
+
 #: Letters that must appear on a line typed at the answer menu before it is
 #: read as a pasted message rather than a mistyped menu key. Every menu key is
 #: a single letter and the longest word on that menu is "quit", so the gap
@@ -1179,7 +1199,23 @@ def render_submission(result: "auto_module.AutoResult") -> str:
     return best.plaintext
 
 
-def _render_answer(result: "auto_module.AutoResult", *, width: int = 60) -> str:
+def _best_confidence(result: "auto_module.AutoResult") -> str:
+    """The confidence label of the best candidate, or the weakest if none."""
+    best = result.candidates.best()
+    return best.confidence() if best is not None else "unlikely"
+
+
+#: How much of a weak reading to show. Enough to recognise it as nonsense at
+#: a glance, and not so much that it buries the line explaining what to do.
+WEAK_PREVIEW_LETTERS = 240
+
+
+def _render_answer(
+    result: "auto_module.AutoResult",
+    *,
+    width: int = 60,
+    exhausted: bool = False,
+) -> str:
     """Show the best candidate as an answer a person can read and copy.
 
     Deliberately puts the plaintext first and large, then the evidence, then
@@ -1231,6 +1267,15 @@ def _render_answer(result: "auto_module.AutoResult", *, width: int = 60) -> str:
     scorer = default_scorer()
     body = best.plaintext
 
+    # A reading the tool does not believe is not an answer, and printing all
+    # of it under the word ANSWER reads as one. Forty-nine lines of gibberish
+    # also push the single useful line -- what to do next -- off the screen.
+    # Show enough to recognise it as nonsense; [a] still prints it in full.
+    truncated = False
+    if confidence in {"weak", "unlikely"} and len(body) > WEAK_PREVIEW_LETTERS:
+        body = body[:WEAK_PREVIEW_LETTERS]
+        truncated = True
+
     # Only offer the spaced version when the split is trustworthy. Restoring
     # spaces needs the words to be in our lexicon, and where they are not the
     # result is worse than no spaces at all: a sentence whose vocabulary we
@@ -1246,6 +1291,13 @@ def _render_answer(result: "auto_module.AutoResult", *, width: int = 60) -> str:
         lines.append("")
     for start in range(0, len(body), width):
         lines.append(body[start : start + width])
+
+    if truncated:
+        lines.append("")
+        lines.append(
+            f"  ... showing the first {WEAK_PREVIEW_LETTERS} letters only. "
+            "Press [a] for the full text of every candidate."
+        )
 
     lines.append("")
     lines.append("-" * 72)
@@ -1270,10 +1322,21 @@ def _render_answer(result: "auto_module.AutoResult", *, width: int = 60) -> str:
 
     lines.append("")
     if confidence in {"weak", "unlikely"}:
-        lines.append(
-            "  This did not score like English. Try 'normal' or 'deep', or "
-            "check the transcription."
-        )
+        if exhausted:
+            # Saying "try deep" after deep has already run is how a tool
+            # loses a user's trust: it reads as advice from something that
+            # is not keeping track of what it did.
+            lines.append(
+                "  This did not score like English, and the search is now "
+                "exhausted. Check the transcription, or use [s] and a crib "
+                "from the story -- 'crib THE' -- which is worth more than "
+                "more searching."
+            )
+        else:
+            lines.append(
+                "  This did not score like English. Try 'normal' or 'deep', "
+                "or check the transcription."
+            )
     else:
         lines.append(
             "  READ IT BEFORE YOU SUBMIT IT. This is the best-scoring guess, "
@@ -1328,12 +1391,30 @@ def _paste_message(
             max_time=args.max_time,
         )
 
-    effort = "fast"
+    effort = EFFORT_LADDER[0]
     result = search(effort)
-    print(_render_answer(result))
 
-    # The search runs only when the user asks for a harder one. Re-solving
-    # on every keypress made copying the answer cost as long as finding it.
+    # Paste in, answer out. Someone who pastes a ciphertext wants the
+    # plaintext, not a weak guess and an instruction to ask again -- and the
+    # instruction it used to print, "try 'normal' or 'deep'", named command
+    # line options that do not exist on this screen. So the flow climbs the
+    # ladder itself and only stops early for a reason.
+    #
+    # Text that was never encrypted is such a reason: there is no cipher to
+    # find, searching harder cannot help, and it is the exact path on which a
+    # deeper search used to manufacture an identity key and call it strong.
+    while (effort != EFFORT_LADDER[-1]
+            and not result.candidates.looks_unencrypted()
+            and _should_search_harder(_best_confidence(result))):
+        effort = EFFORT_LADDER[EFFORT_LADDER.index(effort) + 1]
+        print(f"\n  That did not score as clear English. Searching harder "
+              f"({effort}) on its own -- this takes longer.")
+        result = search(effort)
+
+    print(_render_answer(result, exhausted=effort == EFFORT_LADDER[-1]))
+
+    # Further searching runs only when the user asks for it. Re-solving on
+    # every keypress made copying the answer cost as long as finding it.
     while True:
         print()
         print("-" * 72)
@@ -1425,7 +1506,7 @@ def _paste_message(
             continue
         print(f"\n  Searching harder ({effort})... this takes longer.")
         result = search(effort)
-        print(_render_answer(result))
+        print(_render_answer(result, exhausted=effort == EFFORT_LADDER[-1]))
         continue
 
 
