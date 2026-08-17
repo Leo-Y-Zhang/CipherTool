@@ -856,3 +856,42 @@ class TestPasteFlowReachesTheAnswerItself(unittest.TestCase):
                          "".join(rendered.split()),
                          "the whole wrong plaintext should not be dumped")
         self.assertIn("probably NOT the plaintext", rendered)
+
+
+class TestNumericCiphertextIsNotCalledNothing(unittest.TestCase):
+    """A numeric ciphertext is a cipher, not an empty paste.
+
+    The paste screen works on letters, so a Polybius ciphertext -- digits,
+    no letters -- normalised to nothing and the user was told "No letters
+    were pasted, so there is nothing to work on. Run it again and paste the
+    ciphertext when prompted." They had pasted the ciphertext. It is the one
+    reply that guarantees the person tries the exact same thing again.
+
+    This matters for the National Cipher Challenge specifically: Polybius,
+    Nihilist and ADFGVX-written-with-digits all arrive as numbers, and the
+    toolkit HAS solvers for that shape -- just not on this screen.
+    """
+
+    def _numeric_ciphertext(self, length: int = 200) -> str:
+        from cipher_tool import polybius
+
+        square = polybius.PolybiusSquare.six_by_six(keyword="MONARCHY")
+        return polybius.encrypt(sample_plaintext(length), square)
+
+    def test_digits_are_not_reported_as_an_empty_paste(self) -> None:
+        output = paste_session(self._numeric_ciphertext(), "", "q")
+        self.assertNotIn("No letters were pasted", output)
+
+    def test_it_says_what_was_actually_pasted(self) -> None:
+        output = paste_session(self._numeric_ciphertext(), "", "q")
+        self.assertIn("digits", output.lower())
+
+    def test_it_names_a_command_that_can_work_on_numbers(self) -> None:
+        """A dead end is worse than a wrong guess. Point somewhere real."""
+        output = paste_session(self._numeric_ciphertext(), "", "q")
+        self.assertIn("polybius", output.lower())
+
+    def test_a_genuinely_empty_paste_still_says_so(self) -> None:
+        """The fix must not swallow the case the old message was written for."""
+        output = paste_session("", "")
+        self.assertIn("No letters were pasted", output)

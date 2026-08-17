@@ -31,6 +31,16 @@ Add entries here as you work. Suggested headings: `Added`, `Changed`,
 
 ### Fixed
 
+- **A numeric ciphertext was reported as an empty paste.** The paste screen
+  works on letters, so a Polybius ciphertext -- 400 digits, no letters --
+  normalised to nothing and the user was told "No letters were pasted, so
+  there is nothing to work on. Run it again and paste the ciphertext when
+  prompted." They had pasted the ciphertext. It is the one reply that
+  guarantees somebody tries the identical thing again, and it matters for
+  the competition specifically: Polybius, Nihilist and ADFGVX-written-with-
+  digits all arrive as numbers, and this toolkit has solvers for that shape.
+  It now says what it actually received, and names `encodings` and
+  `polybius` as the commands that can work on it.
 - **A weak reading was printed in full under the word ANSWER.** Forty-nine
   lines of gibberish, with the one useful line -- what to do next -- pushed
   off the screen underneath it. Weak and unlikely readings now show their

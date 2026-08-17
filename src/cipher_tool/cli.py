@@ -1199,6 +1199,52 @@ def render_submission(result: "auto_module.AutoResult") -> str:
     return best.plaintext
 
 
+def _render_letterless(raw: str) -> str:
+    """What to say when something WAS pasted but none of it is letters.
+
+    Telling someone who has just pasted four hundred digits that "no letters
+    were pasted, so there is nothing to work on" is both untrue and a dead
+    end -- it is the one reply that guarantees they try the identical thing
+    again. A numeric ciphertext is a cipher; this screen simply is not where
+    it gets solved, and the toolkit does have solvers for that shape.
+    """
+    body = "".join(raw.split())
+    digits = sum(character.isdigit() for character in body)
+    lines = ["", "=" * 72, "THIS IS NOT A LETTER CIPHER", "=" * 72, ""]
+
+    if digits == len(body):
+        lines.append(
+            f"  All {len(body)} characters are digits, so a letter-based "
+            "attack has nothing to hold on to."
+        )
+        lines.append("")
+        lines.append(
+            "  Numbers usually mean a Polybius square, or something built on "
+            "one -- Nihilist, or ADFGVX written with digits instead of "
+            "letters. The toolkit can work on those, from the command line:"
+        )
+    else:
+        lines.append(
+            f"  Of {len(body)} characters pasted, none are letters "
+            f"({digits} are digits)."
+        )
+        lines.append("")
+        lines.append(
+            "  If this is Morse, binary, hex or Base64, it is an encoding "
+            "rather than a cipher, and identifying it is the first step:"
+        )
+
+    lines.append("")
+    lines.append(f"      {PROGRAM} encodings <file>    identify what it is")
+    lines.append(f"      {PROGRAM} polybius  <file>    solve a numeric square")
+    lines.append("")
+    lines.append(
+        "  Save the message to a file and pass it to one of those. Nothing "
+        "was wrong with what you pasted."
+    )
+    return "\n".join(lines)
+
+
 def _best_confidence(result: "auto_module.AutoResult") -> str:
     """The confidence label of the best candidate, or the weakest if none."""
     best = result.candidates.best()
@@ -1377,8 +1423,13 @@ def _paste_message(
     )
     normalized = normalize(text)
     if normalized.is_empty:
-        print("\n  No letters were pasted, so there is nothing to work on.")
-        print("  Run it again and paste the ciphertext when prompted.")
+        if "".join(text.split()):
+            # Something was pasted; it simply has no letters in it.
+            print(_render_letterless(text))
+        else:
+            print("\n  No letters were pasted, so there is nothing to work "
+                  "on.")
+            print("  Run it again and paste the ciphertext when prompted.")
         return 1
 
     letters = normalized.length

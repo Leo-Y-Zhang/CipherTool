@@ -126,6 +126,11 @@ A reading it does not believe is shown as a preview, not poured out in full:
 a screenful of gibberish under the word ANSWER reads like an answer, and
 buries the line that tells you what to do next.
 
+**If your message is numbers rather than letters** -- a Polybius square,
+Nihilist, or ADFGVX written with digits -- the paste screen says so and
+points at `encodings` and `polybius`, which are the commands that can work
+on it. It does not tell you that you pasted nothing.
+
 **On a Mac**, the very first time, macOS will refuse to open a downloaded
 script. Right-click `cipher_tool.command`, choose **Open**, then click
 **Open** in the dialog. After that, double-clicking works normally. If Finder
