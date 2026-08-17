@@ -908,6 +908,84 @@ class TestNumericCiphertextIsNotCalledNothing(unittest.TestCase):
         self.assertIn("No letters were pasted", output)
 
 
+class TestCopyReadyBlockIsSubmissionSafe(unittest.TestCase):
+    """One wrong space in a competition answer is a rejected answer.
+
+    The letters a decryption produces are exact. The SPACES are a guess made
+    afterwards by a lexicon of 8,342 words, and a competition message is full
+    of names -- CHARLES, TERNAN, DROOD -- that no lexicon written for a
+    cipher toolkit will ever hold. So the spaced form is a reading aid and
+    must never be the thing someone pastes into an answer box.
+
+    The gate existed but measured the wrong thing: the fraction of LETTERS
+    inside known words. Measured on a real solve, that was comfortably over
+    the threshold while 9.5 per cent of the TOKENS were not words at all --
+    `MY DEARCH A RLES` for `MY DEAR CHARLES`. Letters inside known words
+    cannot see a word that has been cut in half.
+    """
+
+    def _scorer(self):
+        from cipher_tool.scoring import default_scorer
+
+        return default_scorer()
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        # Ordinary covered prose with a few names dropped into it, which is
+        # what a competition message actually looks like. Measured on the
+        # real one: the display gate passed at 0.889 while 43 of its 670
+        # tokens were not words at all.
+        cls.WITH_NAMES = (
+            sample_plaintext(400) + "CHARLESTERNANEDWINDROODDODGE"
+        )
+
+    def test_a_message_with_names_is_not_offered_spaced_for_submission(self) -> None:
+        from cipher_tool import cli as cli_module
+
+        self.assertFalse(
+            cli_module._segmentation_is_submission_safe(
+                self.WITH_NAMES, self._scorer()),
+            "guessed spacing must never reach the block someone pastes into "
+            "an answer box when one wrong space is a rejected answer",
+        )
+
+    def test_that_message_is_still_readable_on_screen(self) -> None:
+        """The reading aid must survive; only the COPY block is restricted.
+
+        These are different jobs. On screen the spacing helps somebody check
+        an answer they can see is right. In the copy block it is a liability,
+        because nobody proof-reads what they paste.
+        """
+        from cipher_tool import cli as cli_module
+
+        self.assertTrue(
+            cli_module._segmentation_is_trustworthy(
+                self.WITH_NAMES, self._scorer())
+        )
+
+    def test_ordinary_covered_english_still_gets_its_spaces(self) -> None:
+        """The strict gate must not refuse everything -- that would be
+        useless, and would quietly remove a feature rather than fix it."""
+        from cipher_tool import cli as cli_module
+
+        plaintext = "IHAVETHEHONOURTOREPORTTHATTHECOLUMNREACHEDTHEBRIDGE"
+        self.assertTrue(
+            cli_module._segmentation_is_submission_safe(
+                plaintext, self._scorer())
+        )
+
+    def test_the_letters_are_always_exact(self) -> None:
+        """Whatever else it prints, the copy block contains the decryption."""
+        from cipher_tool import cli as cli_module
+        from cipher_tool.auto import auto_solve
+
+        plain = sample_plaintext(300)
+        result = auto_solve(caesar.encrypt(plain, 5), effort="fast", top=1,
+                            seed=1)
+        block = cli_module.render_submission(result)
+        self.assertIn(plain[:80], "".join(block.split()))
+
+
 class TestPasteSolvesNonLetterMessages(unittest.TestCase):
     """Paste in, answer out -- even when the message is not letters.
 

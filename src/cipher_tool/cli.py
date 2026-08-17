@@ -1248,6 +1248,34 @@ def _segmentation_is_trustworthy(plaintext: str, scorer: Any) -> bool:
     return total > 0 and known / total >= SEGMENTATION_THRESHOLD
 
 
+def _segmentation_is_submission_safe(plaintext: str, scorer: Any) -> bool:
+    """True only when EVERY word of the split is one the lexicon holds.
+
+    A far stricter bar than :func:`_segmentation_is_trustworthy`, and it
+    exists because the two are used for different jobs. On screen, spacing
+    helps somebody check an answer they can already see is right, and being
+    a little wrong costs nothing. In the copy-ready block it is a liability,
+    because nobody proof-reads what they paste -- and in this competition one
+    wrong space is a rejected answer.
+
+    The display gate measures the fraction of LETTERS falling inside known
+    words, and that cannot see a word cut in half: every fragment of
+    ``CH A RLES`` is inside something, so a real message scored 0.889 against
+    a 0.85 threshold while 43 of its 670 tokens were not words at all.
+    Counting whole tokens is what catches that.
+
+    The consequence is deliberate: a message containing names -- and a
+    competition message always does -- gets its letters alone in the copy
+    block. The letters are what the decryption actually produced. The spaces
+    are this toolkit's opinion, and an opinion is not something to paste into
+    an answer box.
+    """
+    pieces = scorer.segment(plaintext)
+    if not pieces:
+        return False
+    return all(piece in scorer.lexicon for piece in pieces)
+
+
 def _wrap_words(text: str, width: int) -> list[str]:
     """Wrap on spaces, never mid-word, so a copied line is never broken."""
     lines: list[str] = []
@@ -1278,10 +1306,11 @@ def render_submission(result: "auto_module.AutoResult") -> str:
     if best is None:
         return ""
     scorer = default_scorer()
-    if _segmentation_is_trustworthy(best.plaintext, scorer):
+    if _segmentation_is_submission_safe(best.plaintext, scorer):
         return scorer.segmented(best.plaintext) + "\n\n" + best.plaintext
-    # A split we cannot trust would be pasted into the answer box with word
-    # breaks in the wrong places, so give only the letters.
+    # Any doubt at all and only the letters go in, because those are what the
+    # decryption produced while the spaces are a guess made afterwards. One
+    # wrong space is a rejected answer, and nobody proof-reads a paste.
     return best.plaintext
 
 
@@ -1454,11 +1483,20 @@ def _render_answer(
     # decryption of a perfect one. Showing that above the real answer would
     # undo the work.
     if _segmentation_is_trustworthy(body, scorer):
-        lines.append("With the spaces put back (easiest to read and check):")
+        lines.append(
+            "Spacing GUESSED by the lexicon, to read and check against -- "
+            "names and words"
+        )
+        lines.append(
+            "it does not know will be split wrongly. SUBMIT THE LETTERS "
+            "BELOW, not this:"
+        )
         lines.append("")
         lines.extend(_wrap_words(scorer.segmented(body), width))
         lines.append("")
-        lines.append("As continuous letters, if the answer box wants none:")
+        lines.append(
+            "THE ANSWER, exactly as decrypted -- every letter, no guesswork:"
+        )
         lines.append("")
     for start in range(0, len(body), width):
         lines.append(body[start : start + width])
