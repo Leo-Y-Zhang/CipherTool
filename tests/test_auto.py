@@ -202,5 +202,46 @@ class TestQuickTriage(unittest.TestCase):
         self.assertTrue(summary.strip())
 
 
+class TestReversedPlaintextIsFound(unittest.TestCase):
+    """Writing the message backwards is a real competition trick.
+
+    Found by running the tool against the published National Cipher
+    Challenge archive rather than against anything invented here. The 2018
+    challenge 8A ciphertext decrypted correctly and then read:
+
+        MQYRAMNIAGAREHTEGOTKROWOTOTINUTROPPOEHTEVAHEWEPOHYUO
+
+    which is -1.999 per letter with 31 per cent word coverage, so the tool
+    called it `weak` and moved on. Backwards it is -1.176 with 73 per cent:
+
+        OUY HOPE WE HAVE THE OPPORTUNIT[Y] TO WORK TOGETHER AGAIN MARY
+
+    The decryption was right and the answer was on the screen; nothing
+    thought to read it the other way round. Reversing a candidate costs one
+    extra score, which is nothing against the searches that produced it.
+    """
+
+    def test_a_reversed_message_is_read_the_right_way_round(self) -> None:
+        plain = sample_plaintext(400)
+        ciphertext = caesar.encrypt(plain[::-1], 7)
+        best = auto_solve(ciphertext, effort="fast", top=3, seed=1).candidates.best()
+        self.assertEqual(best.plaintext, plain)
+        self.assertIn("reversed", best.method.lower())
+
+    def test_it_says_the_text_was_reversed(self) -> None:
+        plain = sample_plaintext(400)
+        ciphertext = caesar.encrypt(plain[::-1], 7)
+        best = auto_solve(ciphertext, effort="fast", top=3, seed=1).candidates.best()
+        self.assertTrue(best.diagnostics.get("plaintext_reversed"))
+
+    def test_ordinary_messages_are_not_turned_around(self) -> None:
+        """The guard: a message that reads correctly must stay that way."""
+        plain = sample_plaintext(400)
+        best = auto_solve(caesar.encrypt(plain, 7), effort="fast", top=3,
+                          seed=1).candidates.best()
+        self.assertEqual(best.plaintext, plain)
+        self.assertNotIn("reversed", best.method.lower())
+
+
 if __name__ == "__main__":
     unittest.main()

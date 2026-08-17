@@ -64,7 +64,7 @@ from . import (
 )
 from .candidates import Candidate, CandidateSet, render_candidates
 from .normalize import NormalizedText, normalize
-from .scoring import EnglishScorer, default_scorer
+from .scoring import EnglishScorer, annotate, default_scorer
 from .statistics import TextStatistics, analyse, summarise
 
 EFFORT_LEVELS = ("fast", "normal", "deep")
@@ -527,10 +527,81 @@ def auto_solve(
             note=note,
         ))
 
+    _add_reversed_readings(result.candidates, engine)
+
     result.seconds = time.monotonic() - started
     if deadline is not None and time.monotonic() >= deadline:
         result.budget_exhausted = True
     return result
+
+
+#: How much better, per letter, a backwards reading must score before it is
+#: offered. Generous, because the difference is not subtle when it is real:
+#: measured on the case that prompted this, -1.999 forwards against -1.176
+#: backwards, a gap of 0.82.
+REVERSAL_MARGIN = 0.25
+
+#: Candidates checked for a backwards reading. The check is one extra score
+#: each, which is nothing beside the searches that produced them, but there
+#: is no point running it over a long tail of readings nobody will look at.
+REVERSAL_DEPTH = 10
+
+
+def _add_reversed_readings(
+    candidates: CandidateSet, engine: EnglishScorer
+) -> None:
+    """Offer the backwards reading of a candidate when it is the better one.
+
+    Writing the message backwards is a real competition trick, and it was
+    found here by running the tool against the published National Cipher
+    Challenge archive rather than against anything invented for a test. The
+    2018 challenge 8A ciphertext decrypted correctly and then read
+
+        MQYRAMNIAGAREHTEGOTKROWOTOTINUTROPPOEHTEVAHEWEPOHYUO
+
+    at -1.999 per letter with 31 per cent word coverage, so the pipeline
+    called it `weak` and moved on. Backwards it is -1.176 with 73 per cent:
+    OUY HOPE WE HAVE THE OPPORTUNIT[Y] TO WORK TOGETHER AGAIN MARY. The
+    decryption was correct and the answer was already on the screen; nothing
+    thought to read it the other way round.
+
+    The reversed reading is ADDED rather than substituted, so both are in
+    the ranking and the score decides. A margin keeps it quiet: English read
+    backwards still scores far worse than English, so a real reversal shows
+    up as a large gap rather than a close call.
+    """
+    for candidate in candidates.top(REVERSAL_DEPTH):
+        if candidate.diagnostics.get("plaintext_reversed"):
+            continue
+        backwards = candidate.plaintext[::-1]
+        if len(backwards) < 20:
+            continue
+        gain = engine.normalised(backwards) - engine.normalised(
+            candidate.plaintext
+        )
+        if gain < REVERSAL_MARGIN:
+            continue
+        # Re-derive the evidence for the text we are actually offering. The
+        # first version of this copied the forward candidate's diagnostics
+        # and kept its word_coverage, so a perfect reading of the 2018 8A
+        # message was judged on the gibberish it came from -- 0.214 coverage
+        # against its real 0.9 -- and came back `weak`. Confidence reads
+        # these fields, so stale ones are not cosmetic.
+        diagnostics = dict(candidate.diagnostics)
+        annotate(diagnostics, backwards, engine)
+        diagnostics["plaintext_reversed"] = True
+        diagnostics["reversal_gain_per_letter"] = round(gain, 3)
+        diagnostics["note"] = (
+            "the decryption read backwards; the message was written in "
+            "reverse before it was enciphered"
+        )
+        candidates.add(Candidate(
+            method=f"{candidate.method} (plaintext reversed)",
+            key=candidate.key,
+            score=engine.score(backwards),
+            plaintext=backwards,
+            diagnostics=diagnostics,
+        ))
 
 
 def quick_triage(source: str | NormalizedText) -> str:
