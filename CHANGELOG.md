@@ -40,6 +40,13 @@ Add entries here as you work. Suggested headings: `Added`, `Changed`,
   so: two permutations of eight columns are 40,320 squared. A run that finds
   nothing is not evidence that there is nothing to find.
 
+  The pipeline stage searches key lengths up to 8. Six was tried first and
+  was worse than useless: a 7-letter keyword is ordinary in this
+  competition, and on a 7x6 message the paste screen escalated all the way
+  to `deep` and still reported `weak` -- honest, and no help at all to the
+  person holding the ciphertext. Screening makes the wider ceiling cheap;
+  all 49 shapes are covered in about thirty seconds on 400 letters.
+
 ### Changed
 
 - **The paste flow now climbs the effort ladder by itself, and only stops on

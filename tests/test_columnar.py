@@ -629,6 +629,14 @@ class TestDoubleSolver(unittest.TestCase):
             deep[0].options.get("time_budget"),
             "unbounded, this stage would run for hours without max_time",
         )
+        # A 7-letter keyword is ordinary in this competition. With the
+        # ceiling at 6 the paste screen escalated all the way to deep on a
+        # 7x6 message and still reported `weak` -- honest, and useless to
+        # the person holding the ciphertext.
+        self.assertGreaterEqual(
+            deep[0].options.get("max_key_length", 0), 7,
+            "the pipeline must reach ordinary keyword lengths",
+        )
 
     def test_the_pipeline_actually_solves_one(self) -> None:
         from cipher_tool.auto import auto_solve, build_stages

@@ -310,10 +310,19 @@ def build_stages(effort: str, top: int, seed: int | None) -> list[Stage]:
         # properly. Candidates report shapes_screened and
         # shapes_fully_searched against shapes_available, so a partial sweep
         # is visible rather than quietly implied.
+        # The ceiling is 8, not 6, and that was measured rather than chosen.
+        # A 7-letter keyword is ordinary in this competition, and with the
+        # ceiling at 6 the paste screen escalated all the way to deep on a
+        # 7x6 message and still reported `weak` -- honest, and useless. The
+        # screen-then-refine search covers all 49 shapes of a ceiling of 8 in
+        # about thirty seconds on 400 letters, because screening is cheap and
+        # only the shortlist is searched properly. The budget is set well
+        # above that so an awkward length has room, not because it is
+        # expected to be needed.
         Stage("double columnar", "transposition", "deep", 25.0,
               columnar.solve_double,
-              {"top": top, "max_key_length": 6, "seed": seed,
-               "restarts": 6, "iterations": 15_000, "time_budget": 40.0}),
+              {"top": top, "max_key_length": 8, "seed": seed,
+               "restarts": 6, "iterations": 15_000, "time_budget": 60.0}),
         Stage("Playfair", "digraphic", "deep", 10.0, playfair.solve,
               {"top": top, "restarts": playfair_restarts, "seed": seed}),
         Stage("Hill 2x2", "digraphic", "deep", 10.0, hill.solve,
