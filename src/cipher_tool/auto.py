@@ -371,10 +371,21 @@ def build_stages(effort: str, top: int, seed: int | None) -> list[Stage]:
         # only the shortlist is searched properly. The budget is set well
         # above that so an awkward length has room, not because it is
         # expected to be needed.
+        # The budget is 120 seconds, not 60, and the reason is a CI failure
+        # rather than a preference. MEASURED on the 400-letter, 7x2 message
+        # this stage is tested against: the search finishes its restarts and
+        # returns the right key in 34 seconds here, but a Windows runner
+        # roughly 1.7 times slower did not finish inside 60 and the stage
+        # returned NO CANDIDATE -- by design, since a cut-short randomised
+        # search must not offer its best guess. Sixty seconds was therefore a
+        # bet on the machine, and on a slow one this stage ran, spent its
+        # whole budget and could not arrive. Raising the ceiling costs
+        # nothing where it already finishes early, because it stops as soon
+        # as its restarts are done; it only buys room where there was none.
         Stage("double columnar", "transposition", "deep", 25.0,
               columnar.solve_double,
               {"top": top, "max_key_length": 8, "seed": seed,
-               "restarts": 6, "iterations": 15_000, "time_budget": 60.0}),
+               "restarts": 6, "iterations": 15_000, "time_budget": 120.0}),
         # Bifid against a square nobody supplied. Held to --deep because,
         # unlike ADFGVX, there is no cheap way to recognise it: a Bifid
         # ciphertext looks like any other letter salad, so the cost is paid
