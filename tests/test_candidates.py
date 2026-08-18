@@ -7,9 +7,18 @@ import unittest
 from cipher_tool.candidates import (
     Candidate,
     CandidateSet,
+    looks_degenerate,
     render_candidate,
     render_candidates,
 )
+
+#: A stand-in plaintext for tests about the LABEL rather than the content.
+#: It has to spread its letters realistically: `confidence()` refuses to call
+#: a reading made of one repeated letter better than `weak`, so the "X" * 40
+#: placeholder these tests used to carry was measuring the degeneracy guard
+#: instead of the band under test.
+SPREAD = ("THEQUICKBROWNFOXJUMPSOVERTHELAZYDOGWHILE"
+          "SEVERALMORECLAUSESFILLOUTTHESENTENCE")
 
 
 def make(method: str = "Caesar", key: str = "shift=3", score: float = -100.0,
@@ -171,28 +180,77 @@ class TestPartlyEnglishIsNotCalledFailure(unittest.TestCase):
     """
 
     def test_a_partly_english_reading_is_promoted_to_promising(self) -> None:
-        candidate = make(plaintext="X" * 40, score=-2.07 * 40,
+        candidate = make(plaintext=SPREAD, score=-2.07 * len(SPREAD),
                          normalised_score=-2.07, word_coverage=0.36,
                          english_fraction=0.40)
         self.assertEqual(candidate.confidence(), "promising")
 
     def test_it_is_not_promoted_all_the_way_to_strong(self) -> None:
-        candidate = make(plaintext="X" * 40, score=-2.07 * 40,
+        candidate = make(plaintext=SPREAD, score=-2.07 * len(SPREAD),
                          normalised_score=-2.07, word_coverage=0.36,
                          english_fraction=0.95)
         self.assertNotEqual(candidate.confidence(), "strong")
 
     def test_noise_with_no_english_portion_stays_where_it_was(self) -> None:
-        candidate = make(plaintext="X" * 40, score=-3.0 * 40,
+        candidate = make(plaintext=SPREAD, score=-3.0 * len(SPREAD),
                          normalised_score=-3.0, word_coverage=0.05,
                          english_fraction=0.0)
         self.assertIn(candidate.confidence(), {"weak", "unlikely"})
 
     def test_a_strong_reading_is_never_weakened_by_this(self) -> None:
-        candidate = make(plaintext="X" * 40, score=-0.8 * 40,
+        candidate = make(plaintext=SPREAD, score=-0.8 * len(SPREAD),
                          normalised_score=-0.8, word_coverage=0.9,
                          english_fraction=1.0)
         self.assertEqual(candidate.confidence(), "strong")
+
+
+class TestDegenerateReadingsAreNotSold(unittest.TestCase):
+    """A reading made of one short word repeated is not an answer at all.
+
+    Both existing signals read the plaintext and neither counts how many
+    DIFFERENT letters it uses, so `ANDANDAND...` scores -0.637 per letter
+    with word coverage 1.000 -- better than genuine English at -0.710 -- and
+    was labelled `strong`. A search with more key freedom than ciphertext
+    collapses onto exactly this shape, so the scorer was rewarding the
+    collapse instead of catching it.
+    """
+
+    def test_a_repeated_word_is_not_strong(self) -> None:
+        candidate = make(plaintext="AND" * 209, score=-0.637 * 627,
+                         normalised_score=-0.637, word_coverage=1.0)
+        self.assertIn(candidate.confidence(), {"weak", "unlikely"})
+
+    def test_two_letters_alternating_is_not_strong(self) -> None:
+        candidate = make(plaintext="ID" * 313, score=-0.756 * 626,
+                         normalised_score=-0.756, word_coverage=0.748)
+        self.assertIn(candidate.confidence(), {"weak", "unlikely"})
+
+    def test_the_partial_prose_promotion_cannot_rescue_it(self) -> None:
+        # english_fraction promotes weak -> promising, and a degenerate text
+        # passes a window-by-window prose test perfectly. The guard is applied
+        # after that promotion for exactly this reason.
+        candidate = make(plaintext="THE" * 209, score=-2.5 * 627,
+                         normalised_score=-2.5, word_coverage=0.30,
+                         english_fraction=1.0)
+        self.assertIn(candidate.confidence(), {"weak", "unlikely"})
+
+    def test_a_short_real_plaintext_is_never_rejected(self) -> None:
+        # ATTACKATDAWN is a legitimate plaintext whose two commonest letters
+        # are 58 per cent of it. Short text is repetitive by nature.
+        candidate = make(plaintext="ATTACKATDAWN", score=-0.9 * 12,
+                         normalised_score=-0.9, word_coverage=0.85)
+        self.assertEqual(candidate.confidence(), "strong")
+
+    def test_genuine_english_is_untouched(self) -> None:
+        candidate = make(plaintext=SPREAD, score=-0.9 * len(SPREAD),
+                         normalised_score=-0.9, word_coverage=0.85)
+        self.assertEqual(candidate.confidence(), "strong")
+
+    def test_it_reports_a_reason(self) -> None:
+        self.assertIsNone(looks_degenerate(SPREAD))
+        self.assertIn("commonest", looks_degenerate("AND" * 209))
+        self.assertIn("different letters",
+                      looks_degenerate(("ABCDEFGHIJKLMNO" * 20)[:300]))
 
 
 if __name__ == "__main__":

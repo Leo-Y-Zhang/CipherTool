@@ -61,6 +61,32 @@ The only thing the toolkit ever does with the whitespace groups is *report*
 them: if every group is the same length, `analyse` says so and explicitly
 notes that this is formatting, not word boundaries.
 
+### Saying what was thrown away
+
+The letters-only view is a filter, and for a long time it could not say what
+it had removed. That is how a message of 1,251 alphanumeric symbols -- 891
+letters and 360 digits -- reached the paste screen as `Read 891 letters`, had
+its digits dropped before any search began, and came back as a monoalphabetic
+substitution labelled `promising`. Nothing on that screen was false. Nothing
+on it was the truth either.
+
+So `normalize()` builds, in the *same* single pass, two more views:
+
+- `symbols` -- uppercase `A-Z` **and** `0-9`, in order, with its own
+  `symbol_positions` map into `original`;
+- `inventory` -- an `Inventory` counting letters, digits, other characters and
+  whitespace, whose `digit_fraction` is measured over the symbol stream rather
+  than over the whole input (spaces are layout, and dividing by them would
+  make the same message look less numeric merely for being printed in groups
+  of five).
+
+They are appended to `NormalizedText` **with defaults**, and an all-zero
+inventory means NOT MEASURED rather than "measured and found empty". Anything
+that builds a `NormalizedText` by hand gets zeroes, so every predicate over an
+inventory has to read zeroes as "behave exactly as the toolkit did before this
+existed". `auto.non_letters_are_material` does, and that is the case that
+reaches a user.
+
 ## English scoring (`scoring.py`)
 
 Every automatic solver works the same way: propose a decryption, ask "does
@@ -339,6 +365,44 @@ Confidence labels are deliberately coarse and pessimistic. `strong` requires
 **both** a good n-gram score and good word coverage, because either alone can
 be fooled. When coverage was not measured, the label is capped below
 `strong`. The strongest label available is `strong`; there is no `solved`.
+
+### Degeneracy: the failure both signals share
+
+Requiring two signals does not help when the same text fools both. Neither
+counts how many **different** letters a reading uses, so a text built from one
+short word repeated satisfies them completely. Measured on 626 letters:
+
+| reading | n-gram/letter | word coverage | distinct letters |
+|---|---|---|---|
+| `ANDANDAND...` | **-0.637** | 1.000 | 3 |
+| `THETHETHE...` | -0.760 | 1.000 | 3 |
+| `IDIDID...` | -0.756 | 0.748 | 2 |
+| real English | -0.710 | 0.960 | 24 |
+
+`ANDANDAND...` outscores genuine English, and every one of those was labelled
+`strong`. Word coverage cannot object -- a repeated real word is fully covered
+by construction -- and neither can the windowed English test, which is why
+`looks_degenerate` is applied *after* the partial-prose promotion rather than
+before it.
+
+This is the shape a search collapses onto when it has more key freedom than
+ciphertext, so the scorer was rewarding the collapse instead of catching it.
+
+Both tests are length-gated, and the gate is the interesting part. Short text
+is repetitive by nature: `ATTACKATDAWN` is a perfectly good plaintext whose
+two commonest letters are 58 per cent of it. Swept over 400 windows per
+length, genuine English last exceeds the 0.55 share limit at 12 letters and is
+clear of it from 15; from 40 upward it never passed 0.433. The share test
+therefore starts at 40. The first distinct-letter threshold tried was a flat
+"fewer than 15", which would have **rejected real 40-letter prose** -- it can
+use only 13 -- so that test waits until 200 letters, where genuine English
+holds 19 or more.
+
+Calibrated against the 48 published answers in the competition archive and 780
+corpus samples from 40 to 3,000 letters: zero false positives, and all eight
+known collapse texts caught. Rejecting a correct answer would be worse than
+anything this guard prevents, so the thresholds sit well clear of real text on
+one side and well clear of every observed collapse on the other.
 
 ---
 
@@ -2206,6 +2270,114 @@ The reason the toolkit needs them at all is that competition ciphertext is
 often wrapped in one of these notations -- as the first layer of a multi-stage
 puzzle, or simply as the way the text was transcribed. Peeling the wrapper off
 is the step *before* the cryptanalysis starts.
+
+## Paired-symbol recognition (`paired.py`)
+
+This module solves nothing. It looks at a symbol stream and decides whether it
+is written in **two disjoint alphabets that strictly alternate** -- a rank and
+a suit, a row and a column -- so that two symbols stand for one cell. Reading
+such a stream a letter at a time gives nonsense; reading only the letters in
+it gives worse than nonsense, a shorter mutilated message that still scores
+well enough for a substitution solver to answer confidently.
+
+The whole cost is linear. `_clean_prefix` walks the stream once, adding each
+token to its parity class and stopping the moment a token turns up in the
+other one, and the same routine run over the reversed stream gives the longest
+clean suffix. Three rules keep the claim honest:
+
+1. **A class of size one is a separator, not an alphabet.** `A1B1C1D1`
+   alternates perfectly and carries no structure. Detecting it would be a
+   confident wrong description, which is the failure this module exists to
+   prevent -- nobody proof-reads a description the way they proof-read a
+   plaintext.
+2. **A single transcription slip is reported, never repaired.** If the clean
+   prefix and the clean suffix together cover all but one token, one symbol is
+   missing or extra at that index. The tail's parity is then flipped relative
+   to the head, so the two classes have to be matched the other way round --
+   getting that backwards still detects, still finds the right break index,
+   and reports one 17-symbol alphabet instead of 13 ranks against 4 suits.
+   Past the break the pairing is off by one and manufactures cells that do not
+   exist, so the distinct-cell count is taken over the clean prefix alone: on
+   a real 52-card message with one symbol missing, counting the whole stream
+   gave 95 distinct cards out of a possible 52. For the same reason the second
+   level -- do the CELLS themselves alternate, making the unit two cells and
+   so more than one letter? -- is only looked for when level 0 is clean.
+   MEASURED: on a two-level stream with one symbol deleted it still detected,
+   over a cell stream that was half fabricated.
+3. **The claim is falsifiable.** When it detects, the module shuffles the same
+   symbol multiset 200 times and reports what fraction of the shuffles
+   alternate too. Expected 0.0, measured 0.0. That number is what separates
+   "these symbols alternate" from "these symbols are of two kinds".
+
+Only one inventory is ever named, and only on an exact match: four suits, and
+at least ten distinct ranks all drawn from the rank letters. Anything looser
+would let the report announce a deck of cards over a stream that happens to
+use the letter K.
+
+## Homophonic substitution (`homophonic.py`)
+
+Several symbols per letter, so the flat frequency profile every monoalphabetic
+attack looks for is never there. Fifty-two symbols onto twenty-six letters --
+a playing card per letter-half -- is the classic shape.
+
+The state is an assignment of symbols to letters. The **slot multiset** -- how
+many symbols stand for each letter -- is fixed before the search starts, and
+the only move is a **swap** of the letters on two symbols, which preserves
+that multiset by construction. Scoring is the order-3 quadgram window score
+the substitution solver optimises, maintained incrementally by the same trick
+`substitution._HillClimber` uses, re-derived over symbols: a swap changes the
+decryption only where those two symbols stand, so only the windows those
+positions touch are rescored. The running total is delta-maintained, which is
+the classic place for a silent bug, so `full_score()` recomputes it and every
+real run reports the largest disagreement as `score_audit_gap`.
+
+Annealing rather than hill-climbing, geometric cooling from 1.5 to 0.06 over
+the iteration count, six restarts -- half seeded from the symbol frequencies,
+half from a shuffle.
+
+### What the constraint is actually for
+
+MEASURED 2026-08-18. **With** the constraint: 0.983 exact letters on a
+52-symbol cipher from 400 units, 0.901 on a 36-symbol one from 313 (at twelve
+restarts; six gives 0.856).
+
+**Without** it -- letting any symbol take any letter -- nothing bad happens on
+genuine homophonic ciphertext. At 52/400, 52/600, 36/313, 40/320 and 52/340
+the free search matched or beat the constrained one, reaching 1.000. The
+constraint earns its keep on a stream that is *not* homophonic, which is the
+case that matters, because that is when a search manufactures a reading of
+something it cannot read. On 600 units of uniformly random cards:
+
+| | letters used | per letter | label |
+|---|---|---|---|
+| constrained | 26 | -2.179 | `weak` |
+| unconstrained | 8 | -1.248 | `promising` |
+
+with the free search producing
+`SEEITSSESINILETSTATSSITSSITSSSTSEETSISASSITSLESS...`. Under a quadgram model
+a five-letter language scores better per letter than English when nothing
+forbids it, and the collapsed reading beats the honest one by nearly a whole
+log unit. **Score alone cannot tell those two apart.** A key that must spend a
+symbol on Z cannot become a key that only writes AEILNRST, and that is the
+entire defence. `constrain_slots=False` exists so a test can watch the
+collapse; it changes the move set, not a constant.
+
+### Honest limits
+
+* The search is annealing, not exhaustive, and says so in its diagnostics.
+* Below 6.0 units per symbol it refuses; below 8.0 it caps its own label at
+  `promising`. The two measured recoveries sat at 9.1 and 9.5 units per
+  *observed* symbol.
+* **A fixed multiset that is wrong cannot be climbed out of**, because no swap
+  can change it. MEASURED on a 32-symbol cipher of which only 28 symbols occur
+  in 260 units: 0.065, 0.000 and 0.850 exact letters at three seeds, and the
+  0.000 run was labelled `promising`. Just above the 27-symbol floor the
+  assumed multiset is most likely to be wrong and the family is least
+  distinguishable from a plain substitution. The units-per-symbol gates do not
+  see this and nothing here pretends they do.
+* It does not repair a broken transcription. When `paired.recognise` reports
+  that alternation breaks, every unit past the break is a fiction, and this
+  module refuses and names the index rather than reading one.
 
 ## Stacked ciphers: a polyalphabetic under a transposition (`stacked.py`)
 

@@ -62,6 +62,7 @@ This includes the parts it would have been easiest to borrow:
 | n-gram language model and its smoothing | `scoring.py` |
 | Word-segmentation dynamic programming | `scoring.py` |
 | Hill-climbing search with restarts | `substitution.py`, `playfair.py` |
+| Simulated annealing over a constrained assignment | `homophonic.py` |
 | Permutation search for transposition | `columnar.py`, `transposition.py` |
 | Pattern-signature word matching | `patterns.py` |
 

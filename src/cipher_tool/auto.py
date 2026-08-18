@@ -54,7 +54,9 @@ from . import (
     columnar,
     encodings,
     hill,
+    homophonic,
     keyword_cipher,
+    paired,
     permutation,
     playfair,
     polybius,
@@ -65,12 +67,49 @@ from . import (
     vigenere,
 )
 from .candidates import Candidate, CandidateSet, render_candidates
-from .normalize import NormalizedText, normalize
+from .normalize import Inventory, NormalizedText, normalize
 from .scoring import EnglishScorer, annotate, default_scorer
 from .statistics import (TextStatistics, analyse,
                          find_low_alphabet_block, summarise)
 
 EFFORT_LEVELS = ("fast", "normal", "deep")
+
+#: When digits are this much of the alphanumeric stream, AND there are at
+#: least :data:`MATERIAL_DIGIT_COUNT` of them, the letters-only view is not a
+#: fair reading of the input.
+#:
+#: MEASURED 2026-08-18 across all 40 official archive ciphertexts: digit
+#: fraction 0.0000 on every one, and at most 26 distinct alphanumeric symbols.
+#: No positive threshold can move that scoreboard, so these two numbers only
+#: decide how tolerant to be of a date or a page number inside a real message.
+MATERIAL_DIGIT_FRACTION = 0.05
+MATERIAL_DIGIT_COUNT = 10
+
+
+def _inventory_is_material(inventory: Inventory) -> bool:
+    """The threshold itself, written once.
+
+    False for a zeroed inventory, which is what NOT MEASURED looks like, so
+    the predicate fails closed onto the toolkit's older behaviour.
+    """
+    return (
+        inventory.digits >= MATERIAL_DIGIT_COUNT
+        and inventory.digit_fraction >= MATERIAL_DIGIT_FRACTION
+    )
+
+
+def non_letters_are_material(normalized: NormalizedText) -> bool:
+    """True when the letters-only view is not a fair reading of the input.
+
+    Returns False for a zeroed (hand-built) inventory, so the legacy case --
+    anything that constructed a :class:`NormalizedText` without going through
+    ``normalize()`` -- behaves exactly as the toolkit did before this existed.
+    That is the case that reaches production, and it fails closed.
+
+    Lives here rather than in ``cli.py`` because ``auto_solve`` needs it too,
+    and ``cli`` imports ``auto`` and not the other way round.
+    """
+    return _inventory_is_material(normalized.inventory)
 
 
 @dataclass
@@ -114,6 +153,10 @@ class AutoResult:
     #: Span of a stretch that was not prose and was set aside before
     #: searching, as (start, end) over the original letters, or None.
     non_prose_block: tuple[int, int] | None = None
+    #: What the paired-symbol recogniser made of the symbol stream, or None
+    #: when the stream was too short to ask. Descriptive only -- nothing in
+    #: the pipeline acts on it.
+    structure: "paired.PairedReport | None" = None
 
     def render(self, *, top: int = 10, full_text: bool = False,
                show_stats: bool = False) -> str:
@@ -131,6 +174,15 @@ class AutoResult:
             lines.append(f"Time budget  : {self.time_budget:.0f}s"
                          + ("  (EXHAUSTED)" if self.budget_exhausted else ""))
         lines.append("")
+
+        # Printed before the stage table, because it changes what the stage
+        # table means: a letters-only reading of a paired-symbol stream is a
+        # reading of half a message, however well it scored.
+        if self.structure is not None and self.structure.detected:
+            lines.append("STRUCTURE FOUND IN THE SYMBOL STREAM")
+            lines.append("-" * 52)
+            lines.append(self.structure.description)
+            lines.append("")
 
         if show_stats:
             lines.append(render_report(self.stats))
@@ -233,6 +285,10 @@ class Stage:
     weight: float
     run: Callable[..., CandidateSet]
     options: dict[str, Any] = field(default_factory=dict)
+    #: Which view of the input this stage reads: ``"letters"`` or
+    #: ``"symbols"``. This is what makes the confidence cap correct -- a stage
+    #: that read the digits must not be capped for discarding them.
+    reads: str = "letters"
 
     def allowed(self, effort: str) -> bool:
         """True if this stage runs at the given effort level."""
@@ -279,7 +335,7 @@ def build_stages(effort: str, top: int, seed: int | None) -> list[Stage]:
 
     stages: list[Stage] = [
         Stage("encodings", "encoding", "fast", 0.2, encodings.solve,
-              {"top": top}),
+              {"top": top}, reads="symbols"),
         Stage("Caesar", "monoalphabetic", "fast", 0.2, caesar.solve,
               {"top": top}),
         Stage("Atbash", "monoalphabetic", "fast", 0.1, atbash.solve,
@@ -320,7 +376,18 @@ def build_stages(effort: str, top: int, seed: int | None) -> list[Stage]:
         # it does apply it is one substitution climb rather than a search
         # over squares. About a second.
         Stage("Polybius (unknown square)", "fractionating", "fast", 1.5,
-              polybius.solve_unknown_square, {"top": top, "seed": seed}),
+              polybius.solve_unknown_square, {"top": top, "seed": seed},
+              reads="symbols"),
+        # More symbols than there are letters: a homophonic key. Runs from
+        # --fast for the same reason ADFGVX does -- it refuses in microseconds
+        # on anything with 26 or fewer distinct symbols, which is every
+        # ordinary ciphertext -- and because the paste screen has to be able
+        # to reach it without escalating, since escalating is how a card
+        # cipher once spent three minutes arriving at a confident wrong
+        # answer.
+        Stage("homophonic", "homophonic", "fast", 8.0, homophonic.solve,
+              {"top": top, "restarts": (2, 6, 12)[scale], "seed": seed},
+              reads="symbols"),
 
         Stage("keyword substitution", "monoalphabetic", "normal", 2.0,
               keyword_cipher.solve, {"top": top, "seed": seed}),
@@ -486,6 +553,13 @@ def auto_solve(
     normalized = normalize(source) if isinstance(source, str) else source
     stats = analyse(normalized)
 
+    # Taken from the input as it arrived. A non-prose block can be cut out
+    # below, and the cut re-normalises the LETTERS alone -- which would leave
+    # a digit-bearing message looking as though it never had a digit in it,
+    # and switch the confidence cap off on the exact input it exists for.
+    pasted = normalized.inventory
+    symbol_stream = normalized.symbols
+
     result = AutoResult(
         normalized=normalized,
         stats=stats,
@@ -528,6 +602,9 @@ def auto_solve(
     started = time.monotonic()
     deadline = started + max_time if max_time is not None else None
     total_weight = sum(stage.weight for stage in plan) or 1.0
+    #: Each stage's report beside the candidate its headline describes, so the
+    #: table can be brought back into step if a cap is applied afterwards.
+    reported: list[tuple[StageReport, Candidate]] = []
 
     for index, stage in enumerate(plan):
         now = time.monotonic()
@@ -571,6 +648,11 @@ def auto_solve(
 
         elapsed = time.monotonic() - stage_started
         produced = list(found.ranked()) if found else []
+        # Stamped here rather than inside every solver: the pipeline knows
+        # which view it handed the stage, and the solvers should not have to
+        # agree about a convention none of them owns.
+        for candidate in produced:
+            candidate.diagnostics["reads"] = stage.reads
         result.candidates.extend(produced)
 
         note = ""
@@ -582,13 +664,16 @@ def auto_solve(
             note = (note + "  " if note else "") + "; ".join(extra_notes)
 
         best = produced[0] if produced else None
-        result.stages.append(StageReport(
+        report = StageReport(
             stage.name, stage.family, ran=True, seconds=elapsed,
             candidates=len(produced),
             best_score=best.score if best else None,
             best_confidence=best.confidence() if best else None,
             note=note,
-        ))
+        )
+        result.stages.append(report)
+        if best is not None:
+            reported.append((report, best))
 
     if result.non_prose_block is not None:
         start, end = result.non_prose_block
@@ -600,7 +685,31 @@ def auto_solve(
                 "and the reading above covers the rest"
             )
 
+    # A letters-only reading of a stream that is mostly not letters is a
+    # reading of half a message, and no score can know that. The stage that
+    # read the letters view is the only place that does, so this is where the
+    # label is weakened -- for the library and the `auto` command as well as
+    # for the paste screen, which is the point: one screen's routing fix is
+    # not a guard.
+    if _inventory_is_material(pasted):
+        discarded = (
+            f"{pasted.digits} of {pasted.symbols} symbols in this message are "
+            "digits and were not part of this reading"
+        )
+        for candidate in result.candidates.ranked():
+            if candidate.diagnostics.get("reads") != "symbols":
+                candidate.diagnostics["confidence_cap"] = "weak"
+                candidate.diagnostics["discarded_symbols"] = discarded
+        # The stage table is written inside the loop, before the cap exists.
+        # Left alone it says `promising` directly above a ranked candidate
+        # that reads `weak`, and one screen must not say two things.
+        for report, best in reported:
+            report.best_confidence = best.confidence()
+
     _add_reversed_readings(result.candidates, engine)
+
+    if len(symbol_stream) >= paired.MINIMUM_SYMBOLS:
+        result.structure = paired.recognise(symbol_stream)
 
     result.seconds = time.monotonic() - started
     if deadline is not None and time.monotonic() >= deadline:
