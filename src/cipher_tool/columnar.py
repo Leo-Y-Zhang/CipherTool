@@ -499,7 +499,7 @@ def decrypt_double(
 
 
 @lru_cache(maxsize=4)
-def _bigram_log_probabilities(scorer: EnglishScorer) -> tuple[float, ...]:
+def bigram_log_probabilities(scorer: EnglishScorer) -> tuple[float, ...]:
     """``log10 P(second | first)`` for all 676 letter pairs, flat-indexed.
 
     Derived from the scorer's own public interface rather than a second,
@@ -520,7 +520,7 @@ def _bigram_log_probabilities(scorer: EnglishScorer) -> tuple[float, ...]:
     return tuple(table)
 
 
-def _adjacency_matrices(
+def adjacency_matrices(
     blocks: Sequence[Sequence[int]], bigrams: Sequence[float]
 ) -> tuple[list[list[float]], list[list[float]]]:
     """Score every ordered pair of ciphertext blocks as neighbouring columns.
@@ -569,7 +569,7 @@ def _adjacency_matrices(
     return side, wrap
 
 
-def _arrangement_score(
+def arrangement_score(
     arrangement: Sequence[int],
     side: Sequence[Sequence[float]],
     wrap: Sequence[Sequence[float]],
@@ -626,7 +626,7 @@ def _improve(
     global one, which is why the caller also restarts from random valid
     arrangements and why greedy results are labelled as such.
     """
-    best = _arrangement_score(arrangement, side, wrap)
+    best = arrangement_score(arrangement, side, wrap)
     count = len(arrangement)
     improving = True
     while improving:
@@ -642,7 +642,7 @@ def _improve(
                     arrangement[second],
                     arrangement[first],
                 )
-                score = _arrangement_score(arrangement, side, wrap)
+                score = arrangement_score(arrangement, side, wrap)
                 arrangement[first], arrangement[second] = (
                     arrangement[second],
                     arrangement[first],
@@ -749,7 +749,7 @@ def _propose_orders(
             for block in range(count)
         ]
         blocks = _blocks_for_pattern(values, block_lengths)
-        side, wrap = _adjacency_matrices(blocks, bigrams)
+        side, wrap = adjacency_matrices(blocks, bigrams)
 
         long_blocks = [b for b in range(count) if remainder and b in long_positions]
         short_blocks = [b for b in range(count) if not remainder or b not in long_positions]
@@ -763,7 +763,7 @@ def _propose_orders(
             for head in permutations(long_blocks):
                 for tail in permutations(short_blocks):
                     arrangement = head + tail
-                    score = _arrangement_score(arrangement, side, wrap)
+                    score = arrangement_score(arrangement, side, wrap)
                     entry = (score, _order_from_arrangement(arrangement))
                     if len(shortlist) < keep:
                         heapq.heappush(shortlist, entry)
@@ -895,7 +895,7 @@ def solve(
             wanted = [count for count in wanted if length % count == 0]
 
     rng = random.Random(seed)
-    bigrams = _bigram_log_probabilities(engine)
+    bigrams = bigram_log_probabilities(engine)
     values = engine.encode(letters)
     deadline = None if time_budget is None else time.monotonic() + time_budget
     budget_hit = False

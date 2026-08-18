@@ -48,6 +48,7 @@ from . import (
     keyword_cipher,
     playfair,
     polybius,
+    permutation,
     rail_fence,
     substitution,
     transposition,
@@ -616,6 +617,41 @@ def command_railfence(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_permutation(args: argparse.Namespace) -> int:
+    """Permutation cipher: one fixed shuffle inside every block."""
+    text, _ = read_source(args)
+    normalized = normalize(text)
+    if args.key:
+        try:
+            if args.encrypt:
+                result = permutation.encrypt(normalized.letters, args.key)
+                emit(_encrypted_report("block permutation",
+                                       f"key={args.key}", result, args), args)
+            else:
+                plaintext = permutation.decrypt(normalized.letters, args.key)
+                show_candidates(
+                    single_candidate("block permutation", f"key={args.key}",
+                                     plaintext, normalized),
+                    args, "Block permutation with the key you supplied")
+        except ValueError as error:
+            raise InputError(str(error)) from error
+        finish(args)
+        return 0
+
+    try:
+        found = permutation.solve(
+            normalized, top=args.top, period=args.period,
+            max_period=args.max_period, seed=args.seed,
+            time_budget=args.max_time,
+        )
+    except ValueError as error:
+        raise InputError(str(error)) from error
+    show_candidates(found, args,
+                    "Block permutation -- every block size tried")
+    finish(args)
+    return 0
+
+
 def command_columnar(args: argparse.Namespace) -> int:
     """Columnar transposition."""
     text, _ = read_source(args)
@@ -666,7 +702,7 @@ def command_columnar(args: argparse.Namespace) -> int:
 
 
 def command_transposition(args: argparse.Namespace) -> int:
-    """Every transposition family at once: rail fence, columnar, route/grid."""
+    """Every transposition family: rail fence, columnar, permutation, route."""
     text, _ = read_source(args)
     normalized = normalize(text)
     if args.routes:
@@ -2042,6 +2078,19 @@ def build_parser() -> argparse.ArgumentParser:
     rail_parser.add_argument("--rails", type=int, metavar="N")
     rail_parser.add_argument("--offset", type=int, default=0, metavar="N")
     rail_parser.add_argument("--encrypt", action="store_true")
+
+    permutation_parser = add("permutation", command_permutation,
+                             "block permutation: one fixed shuffle inside "
+                             "every block", search=True)
+    permutation_parser.add_argument("--key", metavar="KEYWORD")
+    permutation_parser.add_argument("--period", type=int, metavar="N",
+                                    help="attack this block size only")
+    permutation_parser.add_argument(
+        "--max-period", type=int, default=permutation.DEFAULT_MAX_PERIOD,
+        metavar="N", dest="max_period",
+        help="largest block size to try (default "
+             f"{permutation.DEFAULT_MAX_PERIOD})")
+    permutation_parser.add_argument("--encrypt", action="store_true")
 
     columnar_parser = add("columnar", command_columnar,
                           "columnar transposition", search=True)

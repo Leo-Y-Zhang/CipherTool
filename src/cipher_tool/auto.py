@@ -55,6 +55,7 @@ from . import (
     encodings,
     hill,
     keyword_cipher,
+    permutation,
     playfair,
     polybius,
     rail_fence,
@@ -268,6 +269,12 @@ def build_stages(effort: str, top: int, seed: int | None) -> list[Stage]:
     # factorial of this: 6! is 720 orders, 8! is 40,320. Six covers the
     # commonest keyword lengths cheaply; deep goes to eight.
     adfgvx_max = (6, 7, 8)[scale]
+    # Block sizes up to 8 are enumerated exhaustively and cost almost
+    # nothing, because the factorial is paid against an n-by-n matrix rather
+    # than against the message: the whole sweep of sizes 2 to 8 takes under a
+    # second on 2,000 letters. Beyond 8 the search stops being exhaustive, so
+    # only the slower effort levels go there.
+    permutation_max = (8, 10, 12)[scale]
 
     stages: list[Stage] = [
         Stage("encodings", "encoding", "fast", 0.2, encodings.solve,
@@ -288,6 +295,17 @@ def build_stages(effort: str, top: int, seed: int | None) -> list[Stage]:
                "brute_force_up_to": brute_force}),
         Stage("columnar", "transposition", "fast", 3.0, columnar.solve,
               {"top": top, "max_key_length": columnar_max, "seed": seed}),
+        # A whole transposition family that nothing else here can express: a
+        # fixed shuffle applied inside every block, so no letter ever leaves
+        # its own block. MEASURED on the 2,142 letters of the 2018 challenge
+        # 6B, which is exactly this cipher: columnar reached `weak` searching
+        # widths up to 63, route/grid reached `weak`, and this stage solves it
+        # at `strong` in under a second. It runs from --fast because it is
+        # cheap and because a transposition is the first thing to suspect when
+        # the letter frequencies are English and the text is not.
+        Stage("block permutation", "transposition", "fast", 2.0,
+              permutation.solve,
+              {"top": top, "max_period": permutation_max, "seed": seed}),
         # Runs from --fast despite being a two-stage cipher, because it costs
         # nothing when it does not apply: an ADFGVX message is written in
         # five or six specific letters and has an even length, so anything

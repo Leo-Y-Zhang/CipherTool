@@ -321,7 +321,8 @@ Every command takes a file, or `--text "..."`, or `-` for standard input.
 |---|---|
 | `railfence FILE [--rails N] [--offset N]` | exhaustive over rail counts |
 | `columnar FILE [--key WORD] [--max-key-length N] [--complete]` | |
-| `transposition FILE [--routes]` | all three families at once; `--routes` lists the routes |
+| `permutation FILE [--key WORD] [--period N]` | one fixed shuffle inside every block |
+| `transposition FILE [--routes]` | every family at once; `--routes` lists the routes |
 
 ### Digraphic and fractionating
 
@@ -363,7 +364,9 @@ substitution.
 **Polyalphabetic** -- Vigenere, Beaufort, variant Beaufort, plaintext
 autokey, ciphertext autokey.
 **Transposition** -- rail fence (with offset), columnar (simple, complete and
-double), route and grid transpositions including boustrophedon, spirals from
+double), **block permutation** (a fixed shuffle applied inside every block,
+so no letter ever leaves its own block -- a family no columnar key can
+express), route and grid transpositions including boustrophedon, spirals from
 each corner, and diagonal reads.
 **Digraphic and fractionating** -- Polybius (5x5 with I/J merged or Q
 dropped, 6x6 alphanumeric, arbitrary labels including ADFGX), Bifid with
@@ -431,8 +434,11 @@ with two supports -- not as two findings, which would overstate the evidence.
 Substitution and Playfair use hill climbing from many random restarts, and
 report how many restarts converged on the same answer. Columnar uses
 exhaustive permutation search where feasible and a greedy column-pairing
-chain beyond that. Caesar, Atbash, affine and rail fence are searched
-exhaustively, because their key spaces are tiny.
+chain beyond that. Block permutation enumerates every permutation of block
+sizes up to eight, which is affordable because the factorial is paid against
+an eight-by-eight matrix of letter-pair statistics rather than against the
+message. Caesar, Atbash, affine and rail fence are searched exhaustively,
+because their key spaces are tiny.
 
 ## What we wrote ourselves
 

@@ -377,7 +377,7 @@ class TestSolver(unittest.TestCase):
 
         These two cases are the regression test for the row-wrap term in the
         column-pair score: both are recovered with it and neither is without
-        it (measured -- see ``_adjacency_matrices``). They are calibration
+        it (measured -- see ``adjacency_matrices``). They are calibration
         against the current corpus, so if the corpus ever changes and one of
         them starts failing, re-measure the wrap term before weakening this.
         """

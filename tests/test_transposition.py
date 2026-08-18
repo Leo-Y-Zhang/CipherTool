@@ -658,7 +658,7 @@ class TestDispatcher(unittest.TestCase):
             encrypt(SAMPLE, "spiral_cw_top_left", cols=15), METHOD
         )
 
-    def test_all_three_families_contribute_candidates(self) -> None:
+    def test_every_family_contributes_candidates(self) -> None:
         """Nothing is dropped because another family scored better.
 
         ``top=0`` asks for the whole merged set, which is the only way to see
@@ -672,7 +672,9 @@ class TestDispatcher(unittest.TestCase):
         )
         methods = {candidate.method for candidate in found.ranked()}
         self.assertEqual(
-            methods, {"Rail fence", "Columnar transposition", METHOD}
+            methods,
+            {"Rail fence", "Columnar transposition", "Block permutation",
+             METHOD},
         )
         self.assertEqual(found.best().plaintext, SAMPLE)
 
@@ -682,16 +684,21 @@ class TestDispatcher(unittest.TestCase):
         No family's candidates can collide with another's -- the candidate
         set keys on (method, plaintext) and each family has its own method --
         so with ``top=0``, which asks for everything, the merged size is
-        exactly the sum of the three counts. That pins the note to what
-        actually happened rather than to what was meant to happen.
+        exactly the sum of the counts. That pins the note to what actually
+        happened rather than to what was meant to happen.
+
+        The count is read from the dispatcher's own plan rather than written
+        in here, so adding a family updates this test instead of breaking it.
         """
+        from cipher_tool.transposition import _FAMILY_WEIGHTS
+
         found = solve_all(
             encrypt(SAMPLE, "diagonals", cols=15), scorer=scorer(), top=0,
             max_key_length=5, seed=1,
         )
         note = found.best().diagnostics["families_run"]
         counts = [int(part.split("(")[1].rstrip(")")) for part in note.split(", ")]
-        self.assertEqual(len(counts), 3, note)
+        self.assertEqual(len(counts), len(_FAMILY_WEIGHTS), note)
         self.assertEqual(sum(counts), len(found), note)
         self.assertTrue(all(count > 0 for count in counts), note)
 

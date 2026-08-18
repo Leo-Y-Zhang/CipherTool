@@ -14,6 +14,47 @@ Add entries here as you work. Suggested headings: `Added`, `Changed`,
 
 ### Added
 
+- **The permutation cipher: a fixed shuffle applied inside every block**
+  (`permutation.py`, `cipher_tool permutation`, a pipeline stage from
+  `--fast`, and a fourth family in `transposition.solve_all`). A whole
+  family was missing, not a hard case of one that was present.
+
+  Found by running the toolkit against the PUBLIC archive of past National
+  Cipher Challenges rather than against messages it had encrypted itself.
+  The 2018 challenge 6B ciphertext, 2,142 letters, came back `weak` from
+  every transposition attack here: columnar searched widths to 63 including
+  every complete-rectangle divisor, double columnar searched all 64 shapes to
+  9x9, and route/grid tried every route. None of them can express "swap these
+  five positions, over and over", because a columnar transposition moves a
+  letter across the whole message and a permutation cipher never moves one
+  out of its own block. It is a period-5 permutation under the key BAEDC and
+  it now solves at `strong` in 0.9 seconds -- "INFILTRATING THE DELIBERATIONS
+  OF OUR ENEMIES IS A PRINCIPAL GOAL...".
+
+  The attack deliberately reuses the columnar machinery instead of inventing
+  its own, because the two problems have the same shape once you look at
+  them right: take the letters at block offset `a` of every block as a
+  stripe, and scoring "stripe y follows stripe x" is the identical
+  column-pair sum. Three helpers in `columnar.py` became public to say so.
+  That is what makes an exhaustive sweep affordable -- 8! arrangements are
+  scored against an 8-by-8 matrix, not against the message.
+
+  Two details worth keeping. The ragged final block takes the key's relative
+  order rather than being left alone: the 6B plaintext ends CONSTANTINOPLE
+  and its last two letters are a block of two, so leaving short blocks
+  untouched spells it CONSTANTINOPEL -- right for 2,140 letters and wrong for
+  the two a reader looks at last. And the identity permutation is never
+  offered, because it "decrypts" any text to itself and would top the
+  ranking for every piece of plain English ever pasted in.
+
+  MEASURED for wrong-and-strong, the property that matters most, across five
+  DIFFERENT texts at each of five block sizes and six lengths from 60 to 500
+  letters: 150 runs, the exact plaintext every time, and no case of a wrong
+  answer labelled `strong`. So there is no confidence cap here, unlike
+  Playfair -- a wrong block permutation is noise rather than near-English, so
+  the score catches it. Decided by measurement, not by argument.
+
+
 - **A search for an unknown Polybius square, and a paste screen that reads
   symbol streams** (`polybius.solve_unknown_square`, plus a stage that runs
   from `--fast`). Measured before: a keyed Polybius message with no keyword

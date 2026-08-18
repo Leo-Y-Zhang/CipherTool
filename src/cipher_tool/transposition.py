@@ -123,7 +123,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable, Sequence
 
-from . import columnar, rail_fence
+from . import columnar, permutation, rail_fence
 from .candidates import Candidate, CandidateSet
 from .normalize import NormalizedText, group_text, letters_only, normalize
 from .scoring import EnglishScorer, annotate, default_scorer
@@ -1003,7 +1003,8 @@ def solve(
 #: and identical on every platform.
 MINIMUM_FAMILY_SECONDS = 0.02
 
-_FAMILY_WEIGHTS = {"rail_fence": 0.15, "columnar": 0.55, "routes": 0.30}
+_FAMILY_WEIGHTS = {"rail_fence": 0.12, "columnar": 0.45,
+                   "permutation": 0.18, "routes": 0.25}
 
 
 def solve_all(
@@ -1021,6 +1022,8 @@ def solve_all(
     * :func:`rail_fence.solve` -- exhaustive over rail counts and offsets;
     * :func:`columnar.solve` -- column-pair statistics plus a permutation
       search;
+    * :func:`permutation.solve` -- one fixed shuffle inside every block,
+      which none of the others can express;
     * :func:`solve` above -- every grid shape and route.
 
     Candidates keep the method that produced them, so the merged ranking says
@@ -1106,6 +1109,12 @@ def solve_all(
     plan: list[tuple[str, str, Any, dict[str, Any]]] = [
         ("rail_fence", "rail fence", rail_fence.solve, rail_options),
         ("columnar", "columnar", columnar.solve, columnar_options),
+        (
+            "permutation",
+            "block permutation",
+            permutation.solve,
+            {"top": per_family_top, "seed": seed},
+        ),
         (
             "routes",
             "route/grid",

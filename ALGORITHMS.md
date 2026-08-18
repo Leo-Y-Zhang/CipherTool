@@ -1249,7 +1249,8 @@ IC ~0.040  chi2 large   ->  polyalphabetic / digraphic
 `possible` below. So: **unreadable text whose letter statistics are flawless
 English is a transposition until proved otherwise.**
 
-One presentation detail applies to all three modules. Every solver here sets
+One presentation detail applies to all the transposition modules. Every
+solver here sets
 a candidate's `display` to `group_text(plaintext)` -- plain five-letter groups
 -- and deliberately *not* `NormalizedText.relayout()`. Relayout pours
 plaintext letter `i` back into the position of ciphertext letter `i`, which is
@@ -1593,6 +1594,97 @@ The command line exposes both ceilings as `--max-key-length` and
 - The solver never strips filler, so a recovered complete columnar still
   carries its trailing Xs.
 
+## The permutation cipher (`permutation.py`)
+
+### What it does
+
+Cut the plaintext into blocks of a fixed size and rearrange the letters
+inside each block the same way every time. With the key `BAEDC`, whose
+letters sort to `ABCDE` and so give the read order `(1, 0, 4, 3, 2)`:
+
+    plaintext   I N F I L | T R A T I | N G T H E
+    read order  1 0 4 3 2 | 1 0 4 3 2 | 1 0 4 3 2
+    ciphertext  N I L I F | R T I T A | G N E H T
+
+Only positions change, never identities, so the ciphertext carries exactly
+the letter frequencies of the plaintext: an English index of coincidence and
+a tiny chi-squared over text that reads as nonsense.
+
+### Why it is not a columnar transposition
+
+It looks like one and it is not, and the difference is the whole reason the
+module exists. A columnar transposition writes the message into a grid and
+reads out one WHOLE COLUMN at a time, so a letter at plaintext position 3 can
+end up thousands of places away. A permutation cipher never moves a letter
+out of its own block, so displacement is bounded by the block size. No
+columnar key describes that, at any width.
+
+This was not reasoned out in advance. It came from running the toolkit
+against the public archive of past National Cipher Challenges, which is the
+one test that cannot be graded on a curve of the tool's own encryptions. The
+2018 challenge 6B message, 2,142 letters, was reported `weak` by every
+transposition attack in the toolkit -- columnar to width 63 including every
+complete-rectangle divisor of 2,142, double columnar over all 64 shapes to
+9x9, rail fence, and every route and grid. The message is a period-5
+permutation under the key `BAEDC`.
+
+### The attack
+
+The same shape as the columnar attack, and it reuses that code rather than
+restating it. Take the letters at block offset `a` of every block as a
+"stripe". Scoring "stripe y sat immediately after stripe x" is then the same
+sum the columnar solver already computes for neighbouring columns:
+
+    side[x][y] = sum over blocks b of log P( stripe_y[b] | stripe_x[b] )
+
+with a second matrix for the join from the end of one block to the start of
+the next. If y really did follow x, every one of those pairs is a genuine
+English bigram and the sum is far better than any wrong pairing.
+
+That is what makes exhaustive search affordable. Ranking a permutation costs
+`n` table lookups against an `n` by `n` matrix, not a decryption and a
+rescoring of the whole message, so every one of the 40,320 arrangements of
+eight positions is tried in well under a second. Block sizes above eight fall
+back to restarts and hill climbing, and the candidates say which they got.
+
+The hill climb uses two neighbourhoods, not one. Swaps alone search a
+permutation badly: an arrangement that is right except that one position sits
+a single place too early needs everything after it to shift along, and no
+swap of two positions does that. Lifting one position out and reinserting it
+elsewhere does it in a single move.
+
+### Two details that are easy to get wrong
+
+**The ragged last block is permuted too.** A short final block takes the
+key's entries that still point at a real letter, in their original order --
+the only reading that stays a permutation and the only one that agrees with
+the full-block case. It matters: the 2018 6B plaintext ends CONSTANTINOPLE,
+and its last two letters are a block of two. Leaving short blocks alone
+spells it CONSTANTINOPEL, which is right for 2,140 letters and wrong for the
+two a reader looks at last.
+
+**The identity permutation is never offered.** It would "decrypt" any text to
+itself, so it would top the ranking for every piece of plain English ever
+pasted in -- a confident answer to a question nobody asked.
+
+### Confidence, measured rather than argued
+
+Swept over five DIFFERENT texts at each of five block sizes and six lengths
+from 60 to 500 letters: 150 runs, the exact plaintext in every one, and no
+case of a wrong answer labelled `strong`. So no confidence cap is applied
+here. That is the opposite of the Playfair result, and the reason is that a
+near-miss means different things in the two ciphers: Playfair degrades into
+fluent near-English, while a wrong block permutation is noise the score
+catches. A cap this solver does not need would only weaken correct answers.
+
+### Honest limitations
+
+- Block sizes above eight are searched, not enumerated, and say so.
+- A permutation cipher whose block size exceeds the ceiling (12 by default)
+  is not attempted at all.
+- Two blocks of text is the minimum; below that the adjacency sums have
+  nothing to work with and the solver returns nothing rather than guessing.
+
 ## Route and grid transposition (`transposition.py`)
 
 ### What it does
@@ -1693,18 +1785,19 @@ counts the agreements rather than hiding them.
 ## The family dispatcher: solve_all (`transposition.py`)
 
 `solve_all` is what `cipher_tool transposition` calls. It runs
-`rail_fence.solve`, `columnar.solve` and the route `solve` above, and merges
-everything into one ranked `CandidateSet`. Candidates keep the method that
-produced them, so the merged ranking says which family each answer came from,
-and **nothing is dropped merely because another family scored better** -- the
-three attacks disagree often enough on short texts that hiding the runners-up
-would be hiding the uncertainty. Each family is asked for `max(top, 3)`
-candidates.
+`rail_fence.solve`, `columnar.solve`, `permutation.solve` and the route
+`solve` above, and merges everything into one ranked `CandidateSet`.
+Candidates keep the method that produced them, so the merged ranking says
+which family each answer came from, and **nothing is dropped merely because
+another family scored better** -- the attacks disagree often enough on short
+texts that hiding the runners-up would be hiding the uncertainty. Each family
+is asked for `max(top, 3)` candidates.
 
 A `time_budget` is shared out by fixed weights:
 
 ```
-_FAMILY_WEIGHTS = {"rail_fence": 0.15, "columnar": 0.55, "routes": 0.30}
+_FAMILY_WEIGHTS = {"rail_fence": 0.12, "columnar": 0.45,
+                   "permutation": 0.18, "routes": 0.25}
 ```
 
 Every family gets at least 0.05 s even if the budget is tiny, because "we ran
@@ -2635,7 +2728,8 @@ follow, and they are wildly unequal in value.
 
 **The strong one, a negative.** If the ciphertext does not hold enough copies
 of some crib letter, then no rearrangement of it can contain the crib, and
-every transposition -- rail fence, columnar, route, grid, any of them -- is
+every transposition -- rail fence, columnar, block permutation, route, grid,
+any of them -- is
 eliminated at a stroke. It costs one pass of letter counting.
 
 ```
