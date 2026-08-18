@@ -290,5 +290,38 @@ class TestEmbeddedNonProseBlock(unittest.TestCase):
         self.assertNotIn("non_prose_block", best.diagnostics)
 
 
+class TestEveryStageToleratesATimeBudget(unittest.TestCase):
+    """Every stage must survive being handed a clock.
+
+    auto_solve gives each stage a share of the remaining time whenever the
+    caller sets max_time. A solver that refuses the argument is dropped and
+    its whole family goes unsearched -- silently, from the user's side.
+
+    MEASURED: `polybius.solve_unknown_square` rejected `time_budget` with a
+    ValueError, and auto_solve only retries on TypeError, so the stage never
+    ran under a budget at all. The 2017 challenge 3A -- a 4,846-letter
+    Polybius written in Roman numerals -- solves at `strong` in seconds when
+    that stage runs, and came back `unlikely` in the pipeline because it did
+    not. It passed every test I had, because none of them set a budget.
+    """
+
+    def test_no_stage_refuses_time_budget(self) -> None:
+        from cipher_tool.normalize import normalize
+        from cipher_tool.scoring import default_scorer
+
+        engine = default_scorer()
+        text = normalize(sample_plaintext(300))
+        for stage in build_stages("deep", 3, 1):
+            options = dict(stage.options)
+            options["time_budget"] = 2.0
+            with self.subTest(stage=stage.name):
+                try:
+                    stage.run(text, scorer=engine, **options)
+                except TypeError:
+                    # auto_solve retries without the argument, so this is
+                    # survivable -- ValueError is not.
+                    pass
+
+
 if __name__ == "__main__":
     unittest.main()

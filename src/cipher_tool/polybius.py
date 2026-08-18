@@ -949,6 +949,17 @@ def solve_unknown_square(
     text = source.original if isinstance(source, NormalizedText) else source
     restarts = int(options.pop("restarts", DEFAULT_UNKNOWN_RESTARTS))
     seed = options.pop("seed", None)
+    # Accepted and largely ignored, on purpose. This attack is one
+    # substitution climb rather than a search over squares, so it finishes in
+    # about a second and has nothing to ration. What matters is not REFUSING
+    # the argument: the pipeline hands every stage a share of the clock, and
+    # a solver that rejects it is dropped along with its whole family. This
+    # one did, with a ValueError that auto_solve does not retry, so it never
+    # ran under a budget at all -- and the 2017 challenge 3A went unsolved in
+    # the pipeline while solving at `strong` in seconds when called directly.
+    time_budget = options.pop("time_budget", None)
+    if time_budget is not None and float(time_budget) <= 0:
+        return CandidateSet()
     if options:
         raise ValueError(
             "unknown option(s) for the Polybius square search: "
