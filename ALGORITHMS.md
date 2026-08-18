@@ -2207,6 +2207,130 @@ often wrapped in one of these notations -- as the first layer of a multi-stage
 puzzle, or simply as the way the text was transcribed. Peeling the wrapper off
 is the step *before* the cryptanalysis starts.
 
+## Stacked ciphers: a polyalphabetic under a transposition (`stacked.py`)
+
+### The problem
+
+Every other solver in this toolkit attacks ONE cipher. Stack two and each of
+them fails, and fails in the most misleading way available: **the correct
+intermediate answer is not English, so the scorer that is supposed to
+recognise success rejects it.**
+
+The 2017 National Cipher Challenge, challenge 7B, is a Vigenere under the key
+SCYTALE followed by a six-column transposition. Attacked as a Vigenere it
+reaches `weak`. Attacked as a transposition it reaches `weak`. An earlier
+attempt recovered its key CORRECTLY -- LATYCSE, which is SCYTALE read
+backwards from a different starting point -- read the gibberish that came
+out, and concluded that the alphabets must be mixed. A Quagmire solver was
+written down as the biggest remaining gap in the toolkit. There is no
+Quagmire in the archive at all.
+
+**A perfect key that reads as nonsense means another layer, not a wrong key.**
+
+### Cutting it at the joint
+
+The same move as ADFGVX: find a statistic that survives the OUTER layer, use
+it to strip the inner one, and hand what is left to a solver that works.
+
+A columnar transposition reads out one whole column at a time, so each column
+arrives in the ciphertext as a CONTIGUOUS run. If a periodic polyalphabetic
+was applied before the transposition, then inside any one of those runs the
+key still advances with its own period. So:
+
+    split the ciphertext into `width` contiguous blocks, and measure the mean
+    index of coincidence of the cosets at spacing `period` WITHIN each block.
+
+Right shape: every coset is one monoalphabetic image of English, and the mean
+sits near 0.066. Wrong shape: cosets straddle alphabets and it falls towards
+0.038. MEASURED on the real 3,583-letter 7B ciphertext, 0.0661 at width 6 and
+period 7 against a worst case of 0.0404 -- and it needs no knowledge of the
+key, the alphabet or the column order.
+
+### Two rules, both measured rather than reasoned
+
+**The smallest shape wins, not the highest-scoring one.** Multiples of the
+true shape peak too, because splitting a real column in half leaves the key
+phase intact inside each half. Over 120 constructions the highest-scoring
+shape was NOT the true one in 73 of them. The first test written for this
+rule used a case where the truth happened to score highest, and it passed
+with the rule deleted.
+
+**Plain English scores highly at every width and period**, because English
+cosets have an English index of coincidence however you cut them. Measured on
+3,500 letters of prose the WORST setting still scored 0.0649, so the detector
+cannot tell prose from a peeled stack. The whole-message index of coincidence
+is checked first -- but that is an EARLY EXIT, not the safety net. What
+actually refuses English is that its smallest tied shape is a width of 1,
+which means no transposition at all and nothing here to attack. Measured over
+sixteen English-shaped texts, not one got past with a width of 2 or more.
+
+### Taking the layer off
+
+No search. Each block is lined up against the first by cross-correlating its
+coset letter counts; the aligned cosets are pooled, which is what makes it
+robust -- on the real message that turns forty-two cosets of eighty letters
+into seven of five hundred; the pooled cosets are lined up with each other
+the same way; and one chi-squared against English fixes the single remaining
+absolute shift. On 7B that chi-squared is 67 for the right shift against
+13,410 for the runner-up.
+
+What falls out is the transposed plaintext, letter for letter, and
+`columnar.solve` finishes the job with the width already pinned.
+
+### Reading the key it gives back
+
+The key is reported as it runs along a COLUMN, which is not the order the
+setter wrote it in. Going down a column steps the plaintext index by `width`,
+so the key returns sampled with stride `width mod period`, from an unknown
+starting point. On 7B that stride is 6 mod 7, which is -1: the key comes back
+as SELATYC, and SCYTALE backwards is ELATYCS, of which SELATYC is a rotation.
+The letters are right; the reading order is a decimation.
+
+### The ragged grid, and a search that did not pay for itself
+
+When the message is not a whole number of rows, some columns hold one more
+letter -- and those are the first few columns of the GRID, which arrive in
+the ciphertext in KEY order. So which contiguous blocks are long depends on
+the key, which is exactly what is not known yet. MEASURED on a 4,000-letter
+message under ZEBRAS the blocks run 666, 667, 667, 667, 666, 667 while the
+obvious guess gives 667, 667, 667, 667, 666, 666.
+
+Searching every assignment was built and then measured against guessing, over
+the same 100 stacked messages: 61 readings of 99 per cent or better against
+62, 42 exact against 40, no confident-and-wrong answer either way. No
+difference that could be told from noise, so the guess ships and the search
+is gone. It leaves a handful of letters at block boundaries -- three in 2,000
+on the measured case -- which is why an answer here is worth re-reading at
+the joins.
+
+### How well it works, and how honestly
+
+MEASURED over 100 stacked messages from five polyalphabetic keys, five
+transposition keys and four lengths from 1,200 to 4,000 letters:
+
+| | |
+|---|---|
+| shape detected exactly | 59 |
+| read 99 per cent or more of the letters | 61 |
+| exact to the last letter | 42 |
+| labelled `strong` | 61 |
+| **labelled `strong` while under 99 per cent** | **0** |
+
+The 39 it does not get come back `weak` or `unlikely`, which is the honest
+answer. On the real 2017 7B message it is exact: all 3,583 letters, `strong`,
+under three seconds.
+
+### Honest limitations
+
+- About 900 letters is the floor. A 600-letter version of the same
+  construction is not detectable at all, and the solver says `unlikely`
+  rather than guessing.
+- Only a COLUMNAR transposition over the polyalphabetic. A block permutation
+  laid over one would destroy the contiguity the detector depends on.
+- A polyalphabetic key with repeated structure can make a divisor of its
+  period look tied -- PALIMPSEST has P in positions 0 and 5 -- and those
+  cases come back `weak`.
+
 ## Hexadecimal (`encodings.py`)
 
 Each byte is written as two digits base 16, using `0-9` and `A-F`.

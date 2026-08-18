@@ -59,6 +59,7 @@ from . import (
     playfair,
     polybius,
     rail_fence,
+    stacked,
     substitution,
     transposition,
     vigenere,
@@ -334,6 +335,16 @@ def build_stages(effort: str, top: int, seed: int | None) -> list[Stage]:
               {"top": top}),
         Stage("Bifid", "fractionating", "normal", 3.0, bifid.solve,
               {"top": top, "max_period": max_period}),
+        # Two ciphers piled up: a periodic polyalphabetic with a columnar
+        # transposition laid over it, which is the 2017 challenge 7B
+        # construction. Held back from --fast not because it is slow -- it
+        # refuses in microseconds when it does not apply -- but because it
+        # cannot recognise its own cipher for free the way ADFGVX can, and
+        # a stack is rarer than either half alone. It answers only for text
+        # that is long, still polyalphabetic-looking, and carries a periodic
+        # signal inside contiguous blocks; everything else gets nothing.
+        Stage("stacked (polyalphabetic + transposition)", "polyalphabetic",
+              "normal", 4.0, stacked.solve, {"top": top, "seed": seed}),
 
         # Double columnar carries its own time_budget rather than trusting
         # the caller to set max_time, because without one it is unbounded in

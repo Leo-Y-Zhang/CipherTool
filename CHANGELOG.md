@@ -14,6 +14,53 @@ Add entries here as you work. Suggested headings: `Added`, `Changed`,
 
 ### Added
 
+- **An attack on two ciphers piled up: a polyalphabetic with a transposition
+  laid over it** (`stacked.py`, `cipher_tool stacked`, a pipeline stage from
+  `--normal`). The 2017 challenge 7B now comes back `strong` in under three
+  seconds and matches the published answer exactly, all 3,583 letters. It
+  used to be five separate files, all `weak`.
+
+  **A perfect key that reads as nonsense means another layer, not a wrong
+  key.** That is the lesson, and it was learned the expensive way: an earlier
+  session recovered 7B's Vigenere key CORRECTLY, read the gibberish it
+  produced, and concluded the alphabets must be mixed -- filing a second
+  cipher as evidence for a harder version of the first, and recording a
+  Quagmire solver as the biggest remaining gap. There is no Quagmire. The key
+  it found, LATYCSE, is SCYTALE read backwards from a different starting
+  point, and it was right.
+
+  The attack cuts the stack at its joint, as the ADFGVX attack does. A
+  columnar transposition reads out one whole column at a time, so each column
+  arrives in the ciphertext as a contiguous run, and inside any one of those
+  runs the key still advances with its own period. Split into `width`
+  contiguous blocks, measure the index of coincidence of the cosets at
+  spacing `period` INSIDE each block, and the right shape stands out --
+  MEASURED on the real 7B ciphertext, 0.0661 against a worst case of 0.0404,
+  with no knowledge of the key, the alphabet or the column order.
+
+  Two rules, both measured rather than reasoned:
+
+  * **The smallest shape wins, not the highest-scoring one.** Multiples of
+    the true shape peak too, because splitting a real column in half leaves
+    the key phase intact inside each half. Over 120 constructions the
+    highest-scoring shape was NOT the true one in 73 of them.
+  * **Plain English scores highly at every width and period**, so the sweep
+    is meaningless on it. The whole-message index of coincidence is an early
+    exit; what actually refuses English is that its smallest tied shape is a
+    width of 1, meaning no transposition at all.
+
+  MEASURED over 100 stacked messages built from five polyalphabetic keys,
+  five transposition keys and four lengths: 61 read 99 per cent or more of
+  the letters, 42 were exact to the last letter, and **no reading came back
+  `strong` that was under 99 per cent correct**. The other 39 refuse
+  honestly, as `weak` or `unlikely`.
+
+  A search over the ragged grid's block layout was built and then **measured
+  and removed**: it changed 61 to 62 and 42 to 40, which is noise, and cost
+  complexity. The note in the module says so, so nobody spends an evening on
+  it twice.
+
+
 - **The permutation cipher: a fixed shuffle applied inside every block**
   (`permutation.py`, `cipher_tool permutation`, a pipeline stage from
   `--fast`, and a fourth family in `transposition.solve_all`). A whole

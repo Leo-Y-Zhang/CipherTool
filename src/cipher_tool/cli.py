@@ -50,6 +50,7 @@ from . import (
     polybius,
     permutation,
     rail_fence,
+    stacked,
     substitution,
     transposition,
     vigenere,
@@ -648,6 +649,31 @@ def command_permutation(args: argparse.Namespace) -> int:
         raise InputError(str(error)) from error
     show_candidates(found, args,
                     "Block permutation -- every block size tried")
+    finish(args)
+    return 0
+
+
+def command_stacked(args: argparse.Namespace) -> int:
+    """Two ciphers piled up: a polyalphabetic with a transposition over it."""
+    text, _ = read_source(args)
+    normalized = normalize(text)
+    try:
+        found = stacked.solve(
+            normalized, top=args.top, width=args.width, period=args.period,
+            seed=args.seed, time_budget=args.max_time,
+        )
+    except ValueError as error:
+        raise InputError(str(error)) from error
+    if not len(found):
+        emit("Nothing here looks like a polyalphabetic with a transposition "
+             "laid over it. That attack needs a long message (about 900 "
+             "letters), letter statistics that still look polyalphabetic, "
+             "and a repeating key running inside each column. Try 'auto' "
+             "instead.", args)
+        finish(args)
+        return 0
+    show_candidates(found, args,
+                    "Polyalphabetic with a transposition laid over it")
     finish(args)
     return 0
 
@@ -2123,6 +2149,14 @@ def build_parser() -> argparse.ArgumentParser:
                                  dest="second_length",
                                  help="with --double: pin the second key "
                                       "length")
+
+    stacked_parser = add("stacked", command_stacked,
+                         "a polyalphabetic with a transposition laid over it",
+                         search=True)
+    stacked_parser.add_argument("--width", type=int, metavar="N",
+                                help="pin the number of columns")
+    stacked_parser.add_argument("--period", type=int, metavar="N",
+                                help="pin the polyalphabetic key length")
 
     transposition_parser = add("transposition", command_transposition,
                                "every transposition family at once",

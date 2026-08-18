@@ -164,7 +164,11 @@ cipher_tool analyse message.txt
 python run_tests.py
 ```
 
-You should see roughly 1,160 tests pass in about two minutes.
+You should see about 1,300 tests pass, plus roughly 3,000 subtests.
+Budget a quarter of an hour on a laptop: measured at 15 minutes 42
+seconds. Nearly all of it is the randomised climbs, which are slow on
+purpose -- an earlier version of this line said two minutes and had
+been wrong for several releases.
 
 ---
 
@@ -322,6 +326,7 @@ Every command takes a file, or `--text "..."`, or `-` for standard input.
 | `railfence FILE [--rails N] [--offset N]` | exhaustive over rail counts |
 | `columnar FILE [--key WORD] [--max-key-length N] [--complete]` | |
 | `permutation FILE [--key WORD] [--period N]` | one fixed shuffle inside every block |
+| `stacked FILE [--width N] [--period N]` | a polyalphabetic with a transposition laid over it |
 | `transposition FILE [--routes]` | every family at once; `--routes` lists the routes |
 
 ### Digraphic and fractionating
@@ -374,6 +379,14 @@ period, Playfair, Hill 2x2 and 3x3, **ADFGVX and ADFGX** (fractionation
 through a keyed square followed by a columnar transposition -- the attack
 recovers the transposition key AND rebuilds the square, so the answer can be
 checked by hand).
+**Stacked ciphers** -- **a periodic polyalphabetic with a columnar
+transposition laid over it**, which is what "piling up ciphers" means in this
+competition. Every other solver here attacks one cipher, and against a stack
+each of them fails in the most misleading way available: the correct
+intermediate answer is not English, so the scorer meant to recognise success
+rejects it. This finds the shape from the index of coincidence taken INSIDE
+each contiguous block -- a statistic the outer transposition cannot disturb
+-- strips the polyalphabetic, and hands what is left to the columnar solver.
 **Encodings** (not ciphers) -- hexadecimal, binary, decimal ASCII, Base64,
 Morse.
 
