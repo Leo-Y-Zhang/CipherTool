@@ -12,6 +12,127 @@ nothing to publish to.
 Add entries here as you work. Suggested headings: `Added`, `Changed`,
 `Fixed`, `Removed`.
 
+### Fixed
+
+- **A reading made of one short word repeated is no longer labelled `strong`.**
+  Both confidence signals read the plaintext and neither counted how many
+  DIFFERENT letters it used, so `ANDANDAND...` scored -0.637 per letter with
+  word coverage 1.000 -- **better than genuine English at -0.710** -- and was
+  sold as `strong`. So were `THETHETHE...`, `IDIDID...` and `ISITISIT...`.
+  This is not a curiosity: a search with more key freedom than its ciphertext
+  collapses onto exactly this shape, so the scorer was rewarding the collapse
+  instead of catching it.
+
+  `candidates.looks_degenerate` now refuses to call such a reading better than
+  `weak`, applied *after* the partial-prose promotion, because a degenerate
+  text passes a window-by-window English test perfectly.
+
+  Both of its tests are length-gated, from measurement rather than taste.
+  `ATTACKATDAWN` is a perfectly good plaintext whose two commonest letters are
+  58 per cent of it, so the share test waits until 40 letters -- where genuine
+  English never passed 0.433 against a limit of 0.55, across 400 windows per
+  length. A fixed floor of 15 distinct letters, the first threshold tried,
+  would have rejected real 40-letter prose, which can use only 13, so the
+  distinct-letter test waits until 200. Calibrated against the 48 published
+  answers in the competition archive and 780 corpus samples: zero false
+  positives, and all eight known collapse texts caught.
+
+- **A homophonic run that simply did not find the key is no longer
+  `promising`.** Units-per-symbol measures whether the attack had enough
+  evidence; it says nothing about whether a given run succeeded. An unlucky
+  seed fails on ciphertext that is comfortably long enough, and the failure was
+  invisible, because a mis-keyed homophonic decrypt is English-shaped window by
+  window by construction and trips the partial-prose promotion. Measured over
+  24 runs at 400/626/820 units, eight seeds each: readings recovering 90 per
+  cent or more of the letters scored word coverage 0.833 to 0.955, readings
+  recovering under half scored 0.307 to 0.383, and nothing landed between.
+  `RELIABLE_WORD_COVERAGE` sits in that empty band; with it, all four failing
+  runs report `weak` and all twenty good ones `strong`.
+
+- **A paired cipher written entirely in letters is no longer answered
+  silently.** The honesty guard keyed on digits, but the notation is not the
+  cipher: the same 52-card message transcribed with letter ranks and letter
+  suits contains no digits at all, so it was treated as ordinary text. A
+  cleanly recognised pairing now routes the way a digit-bearing one does, and a
+  recognised structure is printed above the answer, not only on the screen that
+  refuses. The refusal also stops telling a reader it declined to discard
+  "0 of 1252 symbols".
+
+- **`--max-time` is no longer ignored on the symbol-stream path** (a
+  five-second budget ran for forty-one seconds), and the `[l]` screen no longer
+  lists candidates that read the symbols under the heading "Letters-only
+  candidates".
+
+- **A message that mixes letters and digits is no longer answered from half of
+  itself.** A real paste of 1,251 alphanumeric symbols -- 891 letters and 360
+  digits -- printed `Read 891 letters. Working...`, dropped the digits in
+  silence, escalated itself fast -> normal -> deep, and returned a
+  monoalphabetic reading at `promising`. Half the message was thrown away
+  before the search began and nothing on the screen said so.
+
+  Three things were wrong and all three are fixed. `normalize()` had no way to
+  say what it had discarded, so it now carries a `symbols` view and an
+  `Inventory`, appended additively -- `original`, `letters`, `positions` and
+  `groups` are byte-identical for every input. The paste screen routed on
+  `normalized.is_empty`, so **one surviving letter was enough** to send a
+  symbol stream down the letters-only pipeline; it now routes on whether the
+  non-letters are a material part of the paste (>= 5 per cent of the symbol
+  stream and >= 10 digits) and does not climb the effort ladder by itself on
+  that path, because self-escalation is how three minutes were spent reaching
+  a confident wrong answer. And the screen counted what SURVIVED the filter as
+  though it described the paste; it now prints
+  `Read 1251 symbols: 891 letters and 360 digits.`
+
+  Behind the routing there is a second, independent guard in `auto_solve`, so
+  the `auto` command and the library get it too: a stage is marked with the
+  view it reads, and any candidate from a `reads="letters"` stage over a
+  digit-bearing message is capped at `weak` and carries a `discarded_symbols`
+  diagnostic naming what it did not see.
+
+  MEASURED over the 40 official archive ciphertexts: digit fraction 0.0000 on
+  every one of them, so no positive threshold can move that scoreboard.
+
+### Added
+
+- **A recogniser for paired-symbol ciphers** (`paired.py`). It solves nothing
+  -- it decides whether a symbol stream is written in two disjoint alternating
+  alphabets, reports the class sizes, the implied cell count and where
+  alternation breaks, and names a 13-rank x 4-suit inventory as a playing-card
+  deck. It tolerates a single transcription slip by REPORTING it, never by
+  repairing it; refuses a one-symbol class as a separator rather than selling
+  it as structure; and reports what fraction of random shuffles of the same
+  symbols alternate too (expected 0.0, measured 0.0), which is what makes the
+  claim falsifiable rather than an artefact of the inventory.
+
+  `cipher_tool analyse` opens with the pasted inventory and, when there is
+  one, the structure block. It is measured over the letters like everything
+  else, so on a card cipher it opened with `Alphabetic characters : 891` and
+  said nothing about the other 360 symbols -- and the refusal screen sends
+  people there. `cipher_tool auto` prints the same block above its stage
+  table.
+
+- **Homophonic substitution** (`homophonic.py`, `cipher_tool homophonic`, a
+  pipeline stage from `--fast`): more distinct symbols than there are letters,
+  attacked by annealing over a FIXED letter-slot multiset with swap-only
+  moves. MEASURED: 0.983 exact letters on a 52-symbol cipher from 400 units,
+  0.901 on a 36-symbol one from 313.
+
+  The slot constraint does not do what it looked like it did, and the
+  measurement is worth more than the intuition. On genuine homophonic
+  ciphertext the UNCONSTRAINED search matched or beat it at every shape tried,
+  reaching 1.000. It earns its keep on a stream that is not homophonic: given
+  600 units of uniformly random cards the free search collapses onto eight
+  letters -- `SEEITSSESINILETSTATSSITSSITSSSTSEETSISASSITSLESS...` -- at
+  -1.248 per letter and calls it `promising`, while the constrained search
+  reports 26 letters at -2.179 and calls it `weak`. The nonsense scores nearly
+  a whole log unit BETTER than the honest reading, so score alone cannot tell
+  them apart. `constrain_slots=False` exists so a test watches that happen.
+
+  Its honest limits are in ALGORITHMS.md, including the one that bites: a
+  fixed multiset that is wrong cannot be climbed out of, and just above the
+  27-symbol floor it produced 0.065, 0.000 and 0.850 exact letters at three
+  seeds on the same cipher.
+
 ### Changed
 
 - **The archive scoreboard is now graded against the published answers, over

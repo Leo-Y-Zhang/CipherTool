@@ -45,7 +45,9 @@ from . import (
     cribs,
     encodings,
     hill,
+    homophonic,
     keyword_cipher,
+    paired,
     playfair,
     polybius,
     permutation,
@@ -325,7 +327,21 @@ def command_show(args: argparse.Namespace) -> int:
 def command_analyse(args: argparse.Namespace) -> int:
     """Measure the ciphertext and suggest families to try."""
     text, _ = read_source(args)
-    emit(render_report(analyse(text)), args)
+    normalized = normalize(text)
+    report = render_report(analyse(text))
+    # The whole report is measured over the LETTERS, so on a paired-symbol
+    # message it opened with "Alphabetic characters : 400" and never said what
+    # the other 630 symbols were. The refusal screen sends people here, so
+    # here is where the answer has to be.
+    header = [f"Pasted            : {normalized.describe_input()}"]
+    if len(normalized.symbols) >= paired.MINIMUM_SYMBOLS:
+        structure = paired.recognise(normalized.symbols)
+        if structure.detected:
+            header.append("")
+            header.append("Structure in the symbol stream")
+            header.append("-" * 30)
+            header.append(structure.description)
+    emit("\n".join(header) + "\n\n" + report, args)
     finish(args)
     return 0
 
@@ -821,6 +837,21 @@ def command_polybius(args: argparse.Namespace) -> int:
                 if args.words else None)
     show_candidates(polybius.solve(text, top=args.top, keywords=keywords),
                     args, "Polybius")
+    finish(args)
+    return 0
+
+
+def command_homophonic(args: argparse.Namespace) -> int:
+    """Homophonic substitution: more distinct symbols than there are letters."""
+    text, _ = read_source(args)
+    found = homophonic.solve(
+        text, top=args.top, seed=args.seed, restarts=args.restarts,
+        iterations=args.iterations, slots=args.slots,
+        unit_size=args.unit, time_budget=args.max_time,
+    )
+    # show_candidates already surfaces `.notes`, which is where every refusal
+    # in homophonic.py puts its reason.
+    show_candidates(found, args, "Homophonic substitution")
     finish(args)
     return 0
 
@@ -1376,14 +1407,32 @@ def render_submission(result: "auto_module.AutoResult") -> str:
     return best.plaintext
 
 
-def _solve_letterless(raw: str, args: argparse.Namespace) -> Any | None:
+#: Restarts the homophonic search gets at each rung of the paste screen's
+#: effort ladder, matching the numbers ``auto.build_stages`` uses.
+_SYMBOL_RESTARTS = {"fast": 2, "normal": 6, "deep": 12}
+
+
+def _solve_symbol_stream(
+    raw: str,
+    args: argparse.Namespace,
+    *,
+    structure: Any | None = None,
+    effort: str = "fast",
+) -> Any | None:
     """Try the solvers that can read a stream of symbols rather than letters.
 
-    Two of them can, and between them they cover what actually turns up:
-    ``encodings`` recognises hex, binary, decimal, Base64 and Morse, and the
+    Three of them can, and between them they cover what actually turns up:
+    ``encodings`` recognises hex, binary, decimal, Base64 and Morse, the
     Polybius square search reads a numeric cipher without being told the
-    square. Both refuse anything they cannot make sense of, so running them
-    speculatively costs nothing and asks the user for nothing.
+    square, and the homophonic family reads a stream with more distinct
+    symbols than there are letters. All three refuse anything they cannot make
+    sense of, so running them speculatively costs nothing and asks the user
+    for nothing.
+
+    Was ``_solve_letterless``. It is called on two paths now: a paste with no
+    letters at all, which is what it was written for, and a paste whose
+    non-letters are a material part of it, which used to be sent down the
+    letters-only pipeline and answered from half a message.
 
     Returns an ``AutoResult``-shaped object when something readable came back,
     otherwise ``None`` so the caller can explain instead.
@@ -1391,11 +1440,22 @@ def _solve_letterless(raw: str, args: argparse.Namespace) -> Any | None:
     engine = default_scorer()
     normalized = normalize(raw)
     found = CandidateSet()
+    restarts = _SYMBOL_RESTARTS.get(effort, _SYMBOL_RESTARTS["fast"])
+
+    # `--max-time` used to stop at the letters-only pipeline, which shares its
+    # deadline across stages by weight while this path quietly ran as long as
+    # it liked: a five-second budget took forty-one seconds. The homophonic
+    # search is the only one of the three that can run long, so it gets the
+    # budget; the other two refuse or finish almost immediately.
+    budget = args.max_time if getattr(args, "max_time", None) else None
 
     for solver in (
         lambda: encodings.solve(normalized, scorer=engine, top=3),
         lambda: polybius.solve_unknown_square(raw, scorer=engine, top=3,
                                               seed=args.seed),
+        lambda: homophonic.solve(normalized, scorer=engine, top=3,
+                                 seed=args.seed, restarts=restarts,
+                                 **({"time_budget": budget} if budget else {})),
     ):
         try:
             found.extend(solver().ranked())
@@ -1411,8 +1471,114 @@ def _solve_letterless(raw: str, args: argparse.Namespace) -> Any | None:
         normalized=normalized,
         stats=analyse(normalized),
         candidates=found,
-        effort="fast",
+        effort=effort,
+        structure=structure,
     )
+
+
+def _render_symbol_refusal(
+    normalized: NormalizedText, structure: Any | None
+) -> str:
+    """Refuse, with the reason on it, and somewhere to go next.
+
+    A tool that refuses is annoying. A tool that answers confidently from half
+    a message teaches its user to trust it wrongly, and that answer goes into
+    a competition form. So this screen says what was pasted, what was
+    recognised in it, what was NOT recovered, and what it is deliberately not
+    offering -- and it always ends with a next step, because a dead end makes
+    people paste the same thing again.
+    """
+    detected = structure is not None and structure.detected
+    heading = (
+        "THIS IS A PAIRED-SYMBOL CIPHER, AND IT IS NOT SOLVED"
+        if detected
+        else "THIS IS NOT A LETTER CIPHER, AND IT IS NOT SOLVED"
+    )
+    lines = ["", "=" * 72, heading, "=" * 72, ""]
+    lines.append(f"  Read {normalized.describe_input()}.")
+    lines.append("")
+
+    if detected:
+        paragraphs = structure.description.split("\n")
+    else:
+        paragraphs = [
+            "No paired-symbol structure was recognised. What is certain is "
+            "only what the count says: a large part of this message is not "
+            "letters."
+        ]
+    paragraphs.append("")
+    # Two different reasons for the same refusal, and quoting the wrong one is
+    # its own small dishonesty: a paired cipher written entirely in letters
+    # discards NOTHING, and telling that reader "this would discard 0 of 1252
+    # symbols" is a sentence that explains nothing.
+    discarded = normalized.inventory.symbols - normalized.length
+    if discarded:
+        paragraphs.append(
+            "The toolkit could not recover the key. It is NOT offering a "
+            f"reading of the letters alone: that would discard {discarded} of "
+            f"{normalized.inventory.symbols} symbols before the search even "
+            "started."
+        )
+    else:
+        paragraphs.append(
+            "The toolkit could not recover the key. It is NOT offering a "
+            "reading that treats each symbol as one letter: if the pairing "
+            "above is real then the unit of this message is two symbols, and "
+            "such a reading answers a different question."
+        )
+    # Wrapped to 68 plus a two-space indent, so every line of this screen fits
+    # the 72 columns the rest of the toolkit keeps to.
+    for paragraph in paragraphs:
+        if not paragraph:
+            lines.append("")
+            continue
+        lines.extend(f"  {piece}" for piece in _wrap_words(paragraph, 68))
+    lines.append("")
+    lines.append("  Next:")
+    lines.append(f"      {PROGRAM} homophonic <file>   more symbols than "
+                 "letters")
+    lines.append(f"      {PROGRAM} analyse    <file>   the full measurement")
+    lines.append("      [s] then  crib THE          a crib beats more search")
+    lines.append("      [l]                         the letters-only reading "
+                 "(NOT an answer)")
+    return "\n".join(lines)
+
+
+def _render_letters_only_reading(
+    normalized: NormalizedText, args: argparse.Namespace
+) -> str:
+    """The reading the tool refused to offer, behind an explicit request.
+
+    Printed with the discard warning attached and labelled as not an answer,
+    every time. The candidates come back from ``auto_solve``, which caps a
+    letters-only reading of a digit-bearing message at ``weak``, so the label
+    under it agrees with the heading above it.
+    """
+    result = auto_module.auto_solve(
+        normalized, effort="fast", top=3, seed=args.seed,
+        max_time=args.max_time,
+    )
+    lines = ["", "=" * 72,
+             "THE LETTERS-ONLY READING -- NOT an answer", "=" * 72, ""]
+    warning = (
+        f"This throws away {normalized.inventory.digits} of "
+        f"{normalized.inventory.symbols} symbols before it starts, so it is a "
+        "reading of a message nobody sent. It is here to be looked at, not "
+        "submitted."
+    )
+    lines.extend(f"  {piece}" for piece in _wrap_words(warning, 68))
+    lines.append("")
+    # `auto_solve` runs the symbol-reading stages too, and a candidate from one
+    # of those did NOT throw the digits away -- listing it under a heading that
+    # says it did is the same kind of untrue label this screen exists to stop.
+    letters_only = [
+        candidate for candidate in result.candidates.ranked()
+        if candidate.diagnostics.get("reads") != "symbols"
+    ]
+    lines.append(render_candidates(letters_only, top=3,
+                                   full_text=False,
+                                   title="Letters-only candidates"))
+    return "\n".join(lines)
 
 
 def _render_letterless(raw: str) -> str:
@@ -1516,6 +1682,25 @@ def _render_answer(
     lines.append(heading)
     lines.append("=" * 72)
     lines.append("")
+
+    # A recognised pairing is printed above the answer whenever it was found,
+    # not only on the screen that refuses. If the message really is written in
+    # two-symbol units then a reading that treats each symbol as a letter is
+    # answering a different question, and the person reading this is the one
+    # who can tell which. Saying it only when the toolkit gives up means the
+    # warning is missing from exactly the case where it is acted on.
+    structure = getattr(result, "structure", None)
+    if structure is not None and getattr(structure, "detected", False):
+        lines.append("  NOTE: this message has a paired-symbol structure.")
+        for paragraph in structure.description.split("\n"):
+            if paragraph.strip():
+                lines.extend(f"  {piece}"
+                             for piece in _wrap_words(paragraph, 68))
+        lines.append("")
+        lines.append("  The reading below treats every symbol as one letter. "
+                     "If the")
+        lines.append("  pairing above is real, that is the wrong unit.")
+        lines.append("")
 
     # The plaintext is printed flush to the left margin, with no indent and
     # no decoration, so that selecting it copies exactly the answer and
@@ -1647,13 +1832,26 @@ def _paste_message(
         first_line=first_line,
     )
     normalized = normalize(text)
+    pasted_anything = bool("".join(text.split()))
+
+    # The inventory of what was PASTED, printed before any search starts and
+    # for every paste. The line it replaces counted what survived the
+    # letters-only filter and read as though it described the input: on a
+    # message of 891 letters and 360 digits it said "Read 891 letters".
+    if pasted_anything:
+        print(f"\n  Read {normalized.describe_input()}. Working...")
+
+    structure = None
+    if len(normalized.symbols) >= paired.MINIMUM_SYMBOLS:
+        structure = paired.recognise(normalized.symbols)
+
     if normalized.is_empty:
-        if "".join(text.split()):
+        if pasted_anything:
             # Something WAS pasted; it simply has no letters in it. Pointing
             # at the right command was an improvement on claiming nothing had
             # been pasted, but it is still homework: the solvers that read a
             # symbol stream already exist, so try them before explaining.
-            found = _solve_letterless(text, args)
+            found = _solve_symbol_stream(text, args, structure=structure)
             if found is not None:
                 print(_render_answer(found, exhausted=True))
                 return 0
@@ -1664,11 +1862,43 @@ def _paste_message(
             print("  Run it again and paste the ciphertext when prompted.")
         return 1
 
-    letters = normalized.length
-    print(f"\n  Read {letters} letter{'' if letters == 1 else 's'}. "
-          "Working...")
+    # One surviving letter used to be enough to send a symbol stream down the
+    # letters-only pipeline. That gate was the bug: "one letter present" is
+    # not "letters only".
+    #
+    # Digits are not the only way to write a paired cipher, though, and the
+    # guard must not key on the notation. The same 52-card message
+    # transcribed with letter ranks and letter suits has NO digits at all, so
+    # the inventory test alone calls it ordinary text and hands back a
+    # monoalphabetic reading of a message whose unit is two symbols. A cleanly
+    # recognised pairing is the same evidence arriving by a different route,
+    # so it routes the same way.
+    #
+    # Safe to act on because recognition is strict: two disjoint classes
+    # alternating with no exceptions, checked against a shuffle control. It
+    # fires on 0 of the 40 official archive ciphertexts.
+    material = (
+        auto_module.non_letters_are_material(normalized)
+        or (structure is not None and structure.detected)
+    )
 
     def search(level: str) -> "auto_module.AutoResult":
+        if material:
+            # No fall-through to the letters-only pipeline, ever. A reading
+            # that discards a third of the message is not a worse answer, it
+            # is an answer to a different question.
+            found = _solve_symbol_stream(
+                text, args, structure=structure, effort=level
+            )
+            if found is not None:
+                return found
+            return auto_module.AutoResult(
+                normalized=normalized,
+                stats=analyse(normalized),
+                candidates=CandidateSet(source_letters=normalized.letters),
+                effort=level,
+                structure=structure,
+            )
         return auto_module.auto_solve(
             normalized, effort=level, top=max(args.top, 5), seed=args.seed,
             max_time=args.max_time,
@@ -1686,7 +1916,14 @@ def _paste_message(
     # Text that was never encrypted is such a reason: there is no cipher to
     # find, searching harder cannot help, and it is the exact path on which a
     # deeper search used to manufacture an identity key and call it strong.
-    while (effort != EFFORT_LADDER[-1]
+    #
+    # A material symbol stream is another, and a stronger one. Climbing the
+    # ladder by itself is exactly how this screen spent three minutes going
+    # fast -> normal -> deep on a card cipher and arrived at a confident wrong
+    # answer. On that path the user asks for more search or it does not
+    # happen.
+    while (not material
+            and effort != EFFORT_LADDER[-1]
             and not result.candidates.looks_unencrypted()
             and _should_search_harder(_best_confidence(result))):
         effort = EFFORT_LADDER[EFFORT_LADDER.index(effort) + 1]
@@ -1694,7 +1931,10 @@ def _paste_message(
               f"({effort}) on its own -- this takes longer.")
         result = search(effort)
 
-    print(_render_answer(result, exhausted=effort == EFFORT_LADDER[-1]))
+    if material and result.candidates.best() is None:
+        print(_render_symbol_refusal(normalized, structure))
+    else:
+        print(_render_answer(result, exhausted=effort == EFFORT_LADDER[-1]))
 
     # Further searching runs only when the user asks for it. Re-solving on
     # every keypress made copying the answer cost as long as finding it.
@@ -1703,6 +1943,8 @@ def _paste_message(
         print("-" * 72)
         print("  [c] COPY-READY answer on its own   [f] save it to a file")
         print("  [Enter] try harder   [a] all candidates   [w] why (stats)")
+        if material:
+            print("  [l] the letters-only reading (NOT an answer)")
         print("  [s] full command shell   [n] new message   [q] quit")
         try:
             typed = input("  > ")
@@ -1749,6 +1991,9 @@ def _paste_message(
         if choice in {"w", "why"}:
             print(render_report(result.stats))
             continue
+        if choice in {"l", "letters"} and material:
+            print(_render_letters_only_reading(normalized, args))
+            continue
         if choice in {"s", "shell"}:
             args.text = text
             args.input = None
@@ -1789,7 +2034,13 @@ def _paste_message(
             continue
         print(f"\n  Searching harder ({effort})... this takes longer.")
         result = search(effort)
-        print(_render_answer(result, exhausted=effort == EFFORT_LADDER[-1]))
+        # `search` already knows which path this message is on, so trying
+        # harder means more of the SAME search. It never means falling back
+        # to the letters-only pipeline, which is the thing being refused.
+        if material and result.candidates.best() is None:
+            print(_render_symbol_refusal(normalized, structure))
+        else:
+            print(_render_answer(result, exhausted=effort == EFFORT_LADDER[-1]))
         continue
 
 
@@ -2197,6 +2448,27 @@ def build_parser() -> argparse.ArgumentParser:
     polybius_parser.add_argument("--words", metavar="LIST",
                                  help="candidate keywords to try")
     polybius_parser.add_argument("--encrypt", action="store_true")
+
+    homophonic_parser = add(
+        "homophonic", command_homophonic,
+        "homophonic substitution: more symbols than letters", search=True)
+    homophonic_parser.add_argument(
+        "--slots", default=homophonic.DEFAULT_SLOT_MODEL,
+        choices=("uniform", "frequency"),
+        help="how many symbols stand for each letter (default "
+             f"{homophonic.DEFAULT_SLOT_MODEL})")
+    homophonic_parser.add_argument(
+        "--unit", type=int, default=None, choices=(1, 2), metavar="N",
+        help="symbols per unit; the default is 2 when the paired-symbol "
+             "recogniser sees two alternating alphabets, and 1 otherwise")
+    homophonic_parser.add_argument(
+        "--restarts", type=positive_count,
+        default=homophonic.DEFAULT_RESTARTS, metavar="N",
+        help=f"annealing restarts (default {homophonic.DEFAULT_RESTARTS})")
+    homophonic_parser.add_argument(
+        "--iterations", type=positive_count,
+        default=homophonic.DEFAULT_ITERATIONS, metavar="N",
+        help=f"moves per restart (default {homophonic.DEFAULT_ITERATIONS})")
 
     bifid_parser = add("bifid", command_bifid, "Bifid", search=True)
     bifid_parser.add_argument("--key", metavar="KEYWORD")

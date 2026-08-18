@@ -16,6 +16,15 @@ module keeps two parallel views of the input:
 
 A position map ties the two together so a recovered plaintext can be re-laid
 into the original layout for human reading.
+
+There is a third view, added later and for a different reason: ``symbols``,
+the uppercase A-Z *and* 0-9 stream, with an :class:`Inventory` counting what
+each character of the input was. The letters-only view is a filter, and a
+filter that cannot say what it removed lets the toolkit describe its own
+leftovers as though they were the message. MEASURED on a real paste of 1,251
+alphanumeric symbols, 891 of them letters: the screen said "Read 891 letters",
+solved the wreckage as a monoalphabetic substitution and offered it as an
+answer. Nothing on that screen was false; nothing on it was the truth either.
 """
 
 from __future__ import annotations
@@ -78,9 +87,96 @@ def letters_only(text: str) -> str:
     return "".join(ch for ch in folded.upper() if "A" <= ch <= "Z")
 
 
+def symbols_only(text: str) -> str:
+    """Return the uppercase A-Z and 0-9 characters of *text*, in order.
+
+    The letters-only view answers "what can a letter cipher read?". This one
+    answers "what did the sender actually write?", and the gap between the two
+    is the thing the toolkit used to throw away without saying so.
+    """
+    folded = fold_to_ascii(text)
+    return "".join(
+        ch for ch in folded.upper() if "A" <= ch <= "Z" or "0" <= ch <= "9"
+    )
+
+
 def clean_key(text: str) -> str:
     """Normalise a user-supplied alphabetic key the same way as ciphertext."""
     return letters_only(text)
+
+
+@dataclass(frozen=True)
+class Inventory:
+    """What each character of an input was, counted by class.
+
+    The defaults are all zero and that is load-bearing: an all-zero inventory
+    means NOT MEASURED, never "measured and found empty". Anything that builds
+    a :class:`NormalizedText` by hand gets one, so every predicate written
+    over an inventory must read zeroes as "behave exactly as before".
+
+    Attributes
+    ----------
+    letters:
+        A-Z after accent folding.
+    digits:
+        0-9, ASCII, after the same folding.
+    other:
+        Non-space characters that are neither: punctuation and symbols.
+    spaces:
+        Whitespace. Layout, never content -- see the module docstring.
+    """
+
+    letters: int = 0
+    digits: int = 0
+    other: int = 0
+    spaces: int = 0
+
+    @property
+    def symbols(self) -> int:
+        """Letters plus digits: the stream a symbol cipher is written in."""
+        return self.letters + self.digits
+
+    @property
+    def total(self) -> int:
+        """Every character counted, including layout."""
+        return self.letters + self.digits + self.other + self.spaces
+
+    @property
+    def digit_fraction(self) -> float:
+        """Digits as a fraction of the SYMBOL stream, 0.0 when there is none.
+
+        Deliberately not a fraction of the whole input: spaces and punctuation
+        are transcription layout, and dividing by them would make the same
+        message look less numeric merely for being printed in groups of five.
+        """
+        if not self.symbols:
+            return 0.0
+        return self.digits / self.symbols
+
+    def describe(self) -> str:
+        """One phrase naming the symbol stream, e.g. ``"1251 symbols: 891
+        letters and 360 digits"``.
+
+        A class that is empty is omitted rather than reported as zero, so an
+        ordinary letters-only paste reads ``"891 symbols: 891 letters"`` and
+        does not invite the reader to wonder what a digit was doing there.
+        Punctuation and whitespace are not mentioned: they are layout, and the
+        count in front of the colon is the symbol stream, not the file.
+        """
+        parts: list[str] = []
+        if self.letters:
+            parts.append(f"{self.letters} letter{'' if self.letters == 1 else 's'}")
+        if self.digits:
+            parts.append(f"{self.digits} digit{'' if self.digits == 1 else 's'}")
+        head = f"{self.symbols} symbol{'' if self.symbols == 1 else 's'}"
+        if not parts:
+            return head
+        return f"{head}: {' and '.join(parts)}"
+
+
+def inventory_of(text: str) -> Inventory:
+    """Count the character classes of *text* without normalising it."""
+    return normalize(text).inventory
 
 
 @dataclass(frozen=True)
@@ -100,12 +196,28 @@ class NormalizedText:
         The whitespace-separated tokens of the original, with their own
         non-letter characters removed. Used only for reporting (for example
         "are all displayed groups the same length?"), never as word evidence.
+    symbols:
+        Uppercase A-Z and 0-9, in order. ``""`` means NOT MEASURED, which is
+        what a hand-built instance gets -- never read it as "no symbols".
+    symbol_positions:
+        ``symbol_positions[i]`` is the index in ``original`` of ``symbols[i]``.
+    inventory:
+        What the input contained, by class. All zeroes means NOT MEASURED.
+
+    The last three are appended with defaults on purpose. Every existing
+    construction of this class, positional or keyword, keeps working, and
+    every predicate written over the inventory must fail closed onto the
+    toolkit's older behaviour when it sees zeroes.
     """
 
     original: str
     letters: str
     positions: tuple[int, ...]
     groups: tuple[str, ...]
+    symbols: str = ""
+    symbol_positions: tuple[int, ...] = ()
+    #: Frozen and immutable, so one shared default instance is safe here.
+    inventory: Inventory = Inventory()
 
     # -- convenience -------------------------------------------------------
 
@@ -121,6 +233,20 @@ class NormalizedText:
     def is_empty(self) -> bool:
         """True when the input contained no letters at all."""
         return not self.letters
+
+    @property
+    def has_symbols(self) -> bool:
+        """True when the symbol stream was measured and is not empty."""
+        return bool(self.symbols)
+
+    @property
+    def digit_fraction(self) -> float:
+        """Digits as a fraction of the symbol stream; 0.0 when not measured."""
+        return self.inventory.digit_fraction
+
+    def describe_input(self) -> str:
+        """What was pasted, in one phrase, for a screen to print verbatim."""
+        return self.inventory.describe()
 
     def grouped(self, size: int = 5, per_line: int = 10) -> str:
         """Render the normalised letters in fixed-size groups for display."""
@@ -178,17 +304,41 @@ def normalize(text: str) -> NormalizedText:
 
     letters: list[str] = []
     positions: list[int] = []
+    symbols: list[str] = []
+    symbol_positions: list[int] = []
+    letter_count = digit_count = other_count = space_count = 0
     # Index into `text` (the untouched original). Folding can change string
     # length, so walk the *original* and fold one character at a time to keep
     # the index mapping exact.
+    #
+    # The symbol stream is built in this SAME pass rather than by a second
+    # walk: the two position maps must agree about which character of the
+    # original produced which entry, and two passes over a folded string is
+    # exactly how they would stop agreeing.
     for index, raw_char in enumerate(text):
         candidate = fold_to_ascii(raw_char).upper()
-        # A folded character may expand (rare) -- take its first ASCII letter.
+        # A folded character may expand (rare) -- take its first ASCII letter
+        # or digit, whichever comes first.
         for ch in candidate:
             if "A" <= ch <= "Z":
                 letters.append(ch)
                 positions.append(index)
+                symbols.append(ch)
+                symbol_positions.append(index)
+                letter_count += 1
                 break
+            if "0" <= ch <= "9":
+                symbols.append(ch)
+                symbol_positions.append(index)
+                digit_count += 1
+                break
+        else:
+            # Not a symbol. Whitespace is layout; anything else is
+            # punctuation the sender or the transcriber put there.
+            if raw_char.isspace():
+                space_count += 1
+            else:
+                other_count += 1
 
     groups = tuple(
         cleaned
@@ -201,6 +351,14 @@ def normalize(text: str) -> NormalizedText:
         letters="".join(letters),
         positions=tuple(positions),
         groups=groups,
+        symbols="".join(symbols),
+        symbol_positions=tuple(symbol_positions),
+        inventory=Inventory(
+            letters=letter_count,
+            digits=digit_count,
+            other=other_count,
+            spaces=space_count,
+        ),
     )
 
 

@@ -133,6 +133,23 @@ keyed Polybius square nobody supplied. Only when nothing can read it does it
 explain what it saw and name the commands to try. It never tells you that you
 pasted nothing.
 
+**If your message MIXES letters and digits**, the screen says so before it
+starts:
+
+```
+  Read 1251 symbols: 891 letters and 360 digits. Working...
+```
+
+and it takes that same symbol-reading path instead of throwing the digits
+away. This is not a nicety. A message of 1,251 symbols, 891 of them letters,
+used to print `Read 891 letters`, lose its digits in silence, and come back as
+a monoalphabetic substitution labelled `promising` -- an answer to half a
+message, with nothing on the screen saying so. When the symbol path cannot
+read it either, the screen refuses and names what it recognised: two
+alternating alphabets, 13 ranks and 4 suits, a 52-card deck, every pair of
+symbols one card, and where the alternation breaks. The letters-only reading
+is still there behind `[l]`, labelled as not an answer.
+
 **On a Mac**, the very first time, macOS will refuse to open a downloaded
 script. Right-click `cipher_tool.command`, choose **Open**, then click
 **Open** in the dialog. After that, double-clicking works normally. If Finder
@@ -334,6 +351,7 @@ Every command takes a file, or `--text "..."`, or `-` for standard input.
 | Command | Notes |
 |---|---|
 | `polybius FILE [--key WORD] [--square LETTERS]` | 5x5 and 6x6, configurable labels |
+| `homophonic FILE [--slots uniform] [--unit 2]` | more symbols than letters; refuses below 6 units per symbol |
 | `bifid FILE [--key WORD] [--period N]` | period variant supported |
 | `playfair FILE [--key WORD] [--check]` | `--check` validates formatting only |
 | `hill FILE [--matrix 3,3,2,5] [--key HILL] [--crib TEXT]` | 2x2 and 3x3 |
@@ -703,7 +721,8 @@ CipherTool/
         caesar.py atbash.py affine.py keyword_cipher.py substitution.py
         vigenere.py beaufort.py autokey.py
         rail_fence.py columnar.py transposition.py
-        polybius.py bifid.py playfair.py hill.py
+        polybius.py bifid.py playfair.py hill.py homophonic.py
+        paired.py             recognises a paired-symbol alphabet
         encodings.py
         data/corpus_*.txt     our own English prose, the scoring corpus
     tests/                    one test module per source module

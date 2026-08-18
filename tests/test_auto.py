@@ -12,12 +12,15 @@ import unittest
 from cipher_tool import caesar, vigenere
 from cipher_tool.auto import (
     EFFORT_LEVELS,
+    Stage,
     auto_solve,
     build_stages,
+    non_letters_are_material,
     order_stages,
     quick_triage,
 )
-from cipher_tool.normalize import letters_only
+from cipher_tool.candidates import Candidate, CandidateSet
+from cipher_tool.normalize import NormalizedText, letters_only, normalize
 from cipher_tool.scoring import corpus_files
 from cipher_tool.statistics import analyse
 
@@ -306,7 +309,6 @@ class TestEveryStageToleratesATimeBudget(unittest.TestCase):
     """
 
     def test_no_stage_refuses_time_budget(self) -> None:
-        from cipher_tool.normalize import normalize
         from cipher_tool.scoring import default_scorer
 
         engine = default_scorer()
@@ -321,6 +323,164 @@ class TestEveryStageToleratesATimeBudget(unittest.TestCase):
                     # auto_solve retries without the argument, so this is
                     # survivable -- ValueError is not.
                     pass
+
+
+def digit_bearing(letters: str, every: int = 3, digit: str = "7") -> str:
+    """*letters* with a digit dropped in after every *every* letters."""
+    out: list[str] = []
+    for index, character in enumerate(letters, start=1):
+        out.append(character)
+        if not index % every:
+            out.append(digit)
+    return "".join(out)
+
+
+class TestMateriality(unittest.TestCase):
+    """When is the letters-only view an unfair reading of the paste?
+
+    MEASURED 2026-08-18 over the 40 official archive ciphertexts: digit
+    fraction 0.0000 on every one of them. No positive threshold can move the
+    scoreboard, so the only question these answer is how tolerant to be of a
+    date or a page number inside an ordinary message.
+    """
+
+    def test_a_card_stream_is_material(self) -> None:
+        self.assertTrue(non_letters_are_material(normalize("7CX S3H6" * 200)))
+
+    def test_an_ordinary_message_carrying_a_date_is_not(self) -> None:
+        # 900 letters and 8 digits: 0.9 per cent, and fewer digits than the
+        # count floor. This must take the letters path exactly as today.
+        text = sample_plaintext(900) + " 12 03 19 07"
+        self.assertFalse(non_letters_are_material(normalize(text)))
+
+    def test_exactly_at_the_fraction_threshold(self) -> None:
+        # 190 letters and 10 digits is 5.0 per cent of 200 symbols.
+        material = "A" * 190 + "1" * 10
+        self.assertTrue(non_letters_are_material(normalize(material)))
+
+    def test_one_digit_below_the_count_threshold(self) -> None:
+        self.assertFalse(non_letters_are_material(normalize("A" * 191 + "1" * 9)))
+
+    def test_four_per_cent_of_a_thousand_symbols_is_not_material(self) -> None:
+        self.assertFalse(
+            non_letters_are_material(normalize("A" * 960 + "1" * 40))
+        )
+
+    def test_a_hand_built_normalized_text_is_never_material(self) -> None:
+        """The designed null case: a zeroed inventory means NOT MEASURED.
+
+        Anything that builds a NormalizedText without going through
+        normalize() gets zeroes, and must then behave exactly as the toolkit
+        did before any of this existed.
+        """
+        legacy = NormalizedText("A1B2", "AB", (0, 2), ("AB",))
+        self.assertFalse(non_letters_are_material(legacy))
+
+
+def one_candidate(normalized, *, scorer=None, **options) -> CandidateSet:
+    """A stand-in solver: always returns exactly one candidate."""
+    return CandidateSet([
+        Candidate(method="stand-in", key="none", score=-1.0,
+                  plaintext="THISISNOTAREADINGOFANYTHING"),
+    ])
+
+
+class TestALettersOnlyReadingOfASymbolStreamCannotClaim(unittest.TestCase):
+    """The second, independent guard behind the routing fix.
+
+    The paste screen refuses; this is what stops the LIBRARY and the `auto`
+    command handing back a confident monoalphabetic reading of a message
+    whose digits were never in the search.
+    """
+
+    def setUp(self) -> None:
+        self.text = digit_bearing(caesar.encrypt(sample_plaintext(300), 3))
+
+    def _run(self, reads: str):
+        stage = Stage("stand-in", "monoalphabetic", "fast", 1.0,
+                      one_candidate, {}, reads=reads)
+        return auto_solve(self.text, effort="fast", top=5, stages=[stage])
+
+    def test_a_letters_stage_is_capped_and_says_why(self) -> None:
+        result = self._run("letters")
+        self.assertTrue(result.candidates.ranked())
+        for candidate in result.candidates.ranked():
+            self.assertEqual(candidate.diagnostics["confidence_cap"], "weak")
+            self.assertIn("digits", candidate.diagnostics["discarded_symbols"])
+            self.assertEqual(candidate.confidence(), "weak")
+
+    def test_a_symbols_stage_is_not_capped(self) -> None:
+        """A stage that DID read the digits must not be punished for them."""
+        result = self._run("symbols")
+        self.assertTrue(result.candidates.ranked())
+        for candidate in result.candidates.ranked():
+            self.assertNotIn("confidence_cap", candidate.diagnostics)
+            self.assertNotIn("discarded_symbols", candidate.diagnostics)
+
+    def test_a_letters_only_message_is_untouched(self) -> None:
+        stage = Stage("stand-in", "monoalphabetic", "fast", 1.0,
+                      one_candidate, {}, reads="letters")
+        result = auto_solve(caesar.encrypt(sample_plaintext(300), 3),
+                            effort="fast", top=5, stages=[stage])
+        for candidate in result.candidates.ranked():
+            self.assertNotIn("confidence_cap", candidate.diagnostics)
+
+    def test_the_stage_table_agrees_with_the_candidates(self) -> None:
+        """One screen must not say two things.
+
+        The stage report is written inside the loop and the cap is applied
+        after it, so the table said `promising` about a candidate the ranking
+        below it called `weak`. Observed on the real message: `substitution
+        1.14s 2 candidate(s), best promising` above a candidate whose
+        confidence line read `weak`.
+        """
+        result = self._run("letters")
+        for report in result.stages:
+            if report.ran and report.candidates:
+                self.assertEqual(report.best_confidence, "weak")
+
+    def test_every_stage_records_what_it_read(self) -> None:
+        result = self._run("symbols")
+        for candidate in result.candidates.ranked():
+            self.assertEqual(candidate.diagnostics["reads"], "symbols")
+
+
+class TestTheStructureReportReachesTheAutoReport(unittest.TestCase):
+    def test_a_card_stream_is_described_not_solved(self) -> None:
+        import random
+
+        generator = random.Random(1)
+        stream = "".join(
+            generator.choice("23456789XJQKA") + generator.choice("CDHS")
+            for _ in range(300)
+        )
+        stage = Stage("stand-in", "monoalphabetic", "fast", 1.0,
+                      one_candidate, {}, reads="letters")
+        result = auto_solve(stream, effort="fast", top=3, stages=[stage])
+        self.assertIsNotNone(result.structure)
+        self.assertTrue(result.structure.detected)
+        self.assertIn("playing-card deck", result.render())
+
+    def test_ordinary_english_gets_no_structure_claim(self) -> None:
+        stage = Stage("stand-in", "monoalphabetic", "fast", 1.0,
+                      one_candidate, {}, reads="letters")
+        result = auto_solve(sample_plaintext(400), effort="fast", top=3,
+                            stages=[stage])
+        self.assertFalse(result.structure.detected)
+        self.assertNotIn("paired alphabet", result.render())
+
+
+class TestTheHomophonicStageIsInThePlan(unittest.TestCase):
+    def test_it_runs_from_fast(self) -> None:
+        names = {stage.name for stage in build_stages("fast", 5, None)}
+        self.assertIn("homophonic", names)
+
+    def test_it_is_marked_as_reading_the_symbol_stream(self) -> None:
+        stages = {stage.name: stage for stage in build_stages("fast", 5, None)}
+        self.assertEqual(stages["homophonic"].reads, "symbols")
+        for name in ("encodings", "Polybius (unknown square)"):
+            self.assertEqual(stages[name].reads, "symbols")
+        self.assertEqual(stages["Caesar"].reads, "letters")
 
 
 if __name__ == "__main__":

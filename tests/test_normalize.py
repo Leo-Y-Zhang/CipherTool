@@ -9,15 +9,18 @@ from __future__ import annotations
 import unittest
 
 from cipher_tool.normalize import (
+    Inventory,
     NormalizedText,
     chunks,
     clean_key,
     columns,
     from_numbers,
     group_text,
+    inventory_of,
     letters_only,
     normalize,
     strip_bom,
+    symbols_only,
     to_numbers,
 )
 
@@ -172,6 +175,152 @@ class TestNumbers(unittest.TestCase):
 
     def test_clean_key(self) -> None:
         self.assertEqual(clean_key("le mon!"), "LEMON")
+
+
+class TestSymbolsOnly(unittest.TestCase):
+    def test_keeps_letters_and_digits_in_order(self) -> None:
+        self.assertEqual(symbols_only("A1B 2C, 3D"), "A1B2C3D")
+
+    def test_uppercases_and_folds_accents(self) -> None:
+        self.assertEqual(symbols_only("caf\u00e9 1907"), "CAFE1907")
+
+    def test_empty(self) -> None:
+        self.assertEqual(symbols_only(""), "")
+        self.assertEqual(symbols_only("!!! ..."), "")
+
+
+class TestInventoryCounts(unittest.TestCase):
+    """What was in the paste, not what survived the filter.
+
+    The bug this defends against: a message of 891 letters and 360 digits
+    printed "Read 891 letters", which describes the leftovers of a filter as
+    though it described the input.
+    """
+
+    def test_every_class_is_counted(self) -> None:
+        found = inventory_of("7CX S3, H6\n")
+        self.assertEqual(found.letters, 4)
+        self.assertEqual(found.digits, 3)
+        self.assertEqual(found.other, 1)      # the comma
+        self.assertEqual(found.spaces, 3)     # two spaces and the newline
+        self.assertEqual(found.symbols, 7)
+        self.assertEqual(found.total, 11)
+
+    def test_digit_fraction_is_over_the_symbol_stream(self) -> None:
+        # Not over the whole input: spaces and punctuation are layout, and
+        # dividing by them would make the same message look less numeric
+        # simply for being printed in five-symbol groups.
+        found = inventory_of("AAAAAAAA 11")
+        self.assertAlmostEqual(found.digit_fraction, 0.2)
+
+    def test_digit_fraction_of_nothing_is_zero_not_an_error(self) -> None:
+        self.assertEqual(inventory_of("!!!").digit_fraction, 0.0)
+
+    def test_describe_names_both_classes(self) -> None:
+        described = inventory_of("7CX S3, H6").describe()
+        self.assertIn("7 symbols", described)
+        self.assertIn("4 letters", described)
+        self.assertIn("3 digits", described)
+
+    def test_describe_omits_a_class_that_is_empty(self) -> None:
+        described = inventory_of("ATTACK AT DAWN").describe()
+        self.assertIn("12 letters", described)
+        self.assertNotIn("digit", described)
+
+    def test_a_hand_built_inventory_is_all_zeroes(self) -> None:
+        """The NOT MEASURED case, and it must read as zero, never as counts."""
+        self.assertEqual(Inventory().symbols, 0)
+        self.assertEqual(Inventory().total, 0)
+        self.assertEqual(Inventory().digit_fraction, 0.0)
+
+
+class TestNormalizedTextCarriesTheInventory(unittest.TestCase):
+    def test_symbols_view_and_its_position_map(self) -> None:
+        raw = "A1B 2C, 3D"
+        result = normalize(raw)
+        self.assertEqual(result.symbols, "A1B2C3D")
+        self.assertEqual(result.symbol_positions, (0, 1, 2, 4, 5, 8, 9))
+        for index, position in enumerate(result.symbol_positions):
+            self.assertEqual(raw[position].upper(), result.symbols[index])
+
+    def test_the_letters_of_the_symbol_stream_are_the_letters_view(self) -> None:
+        result = normalize("Attack at dawn! 42 times.")
+        self.assertEqual(
+            "".join(c for c in result.symbols if not c.isdigit()),
+            result.letters,
+        )
+
+    def test_lengths_agree_with_the_inventory(self) -> None:
+        result = normalize("CAF\u00c9 na\u00efve, 1907")
+        self.assertEqual(len(result.symbols), result.inventory.symbols)
+        self.assertEqual(len(result.symbol_positions), len(result.symbols))
+        self.assertEqual(
+            result.inventory.letters + result.inventory.digits,
+            len(result.symbols),
+        )
+
+    def test_derived_members(self) -> None:
+        result = normalize("7CX S3, H6")
+        self.assertTrue(result.has_symbols)
+        self.assertAlmostEqual(result.digit_fraction, 3 / 7)
+        self.assertIn("7 symbols", result.describe_input())
+        self.assertFalse(normalize("!!!").has_symbols)
+
+    def test_a_hand_built_normalized_text_still_works(self) -> None:
+        """The legacy call site: positional construction, no inventory.
+
+        Anything that builds a NormalizedText without going through
+        normalize() gets a zeroed inventory, and every predicate over it must
+        read that as NOT MEASURED and behave exactly as the tool does today.
+        """
+        legacy = NormalizedText("ABC", "ABC", (0, 1, 2), ("ABC",))
+        self.assertEqual(legacy.symbols, "")
+        self.assertEqual(legacy.symbol_positions, ())
+        self.assertEqual(legacy.inventory, Inventory())
+        self.assertFalse(legacy.has_symbols)
+        self.assertEqual(legacy.digit_fraction, 0.0)
+
+
+class TestTheExistingViewsAreByteIdentical(unittest.TestCase):
+    """The additive-first rule, as a test.
+
+    These values were recorded from the tree BEFORE the inventory existed.
+    If any of them moves, the change was not additive and every solver in the
+    toolkit is reading something different from what it read yesterday.
+    """
+
+    GOLDEN = (
+        (
+            "Attack at dawn! 42 times.",
+            "ATTACKATDAWNTIMES",
+            (0, 1, 2, 3, 4, 5, 7, 8, 10, 11, 12, 13, 19, 20, 21, 22, 23),
+            ("ATTACK", "AT", "DAWN", "TIMES"),
+        ),
+        (
+            "CAF\u00c9 na\u00efve, 1907",
+            "CAFENAIVE",
+            (0, 1, 2, 3, 5, 6, 7, 8, 9),
+            ("CAFE", "NAIVE"),
+        ),
+        (
+            "\ufeffABC 123 def",
+            "ABCDEF",
+            (0, 1, 2, 8, 9, 10),
+            ("ABC", "DEF"),
+        ),
+        ("7CX S3, H6\n", "CXSH", (1, 2, 4, 8), ("CX", "S", "H")),
+        ("", "", (), ()),
+        ("   ", "", (), ()),
+    )
+
+    def test_letters_positions_and_groups_are_unchanged(self) -> None:
+        for raw, letters, positions, groups in self.GOLDEN:
+            with self.subTest(raw=raw):
+                result = normalize(raw)
+                self.assertEqual(result.original, strip_bom(raw))
+                self.assertEqual(result.letters, letters)
+                self.assertEqual(result.positions, positions)
+                self.assertEqual(result.groups, groups)
 
 
 if __name__ == "__main__":

@@ -1013,3 +1013,124 @@ class TestPasteSolvesNonLetterMessages(unittest.TestCase):
         """The guidance must survive for the cases that remain unreadable."""
         output = paste_session("2 4 6 8 1 3 5 7 9 0 2 4", "", "q")
         self.assertIn("NOT A LETTER CIPHER", output.upper())
+
+
+def card_message(cards: int = 300, seed: int = 1, slip: int | None = 401) -> str:
+    """A paired-symbol ciphertext of the shape the operator actually pasted.
+
+    Ranks and suits alternate, ranks 2 to 9 are digits, and one symbol is
+    missing -- which is the ordinary state of a hand transcription and the
+    reason the real message had an odd symbol count.
+    """
+    import random
+
+    generator = random.Random(seed)
+    stream = "".join(
+        generator.choice("23456789XJQKA") + generator.choice("CDHS")
+        for _ in range(cards)
+    )
+    if slip is not None:
+        stream = stream[:slip] + stream[slip + 1:]
+    return " ".join(stream[i:i + 5] for i in range(0, len(stream), 5))
+
+
+class TestASymbolStreamIsNotReadAsLetters(unittest.TestCase):
+    """The bug this whole change exists for, driven through the real screen.
+
+    A message of 1,251 alphanumeric symbols -- 891 letters and 360 digits --
+    had its digits dropped in silence, the wreckage solved as a monoalphabetic
+    substitution, and the result offered at `promising`. The screen printed
+    "Read 891 letters. Working...", which describes the leftovers of a filter
+    as though it described the paste.
+    """
+
+    def setUp(self) -> None:
+        self.output = paste_session(card_message(), "", "q")
+
+    def test_it_reports_what_was_pasted_not_what_survived(self) -> None:
+        self.assertIn("symbols", self.output)
+        self.assertIn("digits", self.output)
+        self.assertNotIn("Read 369 letters", self.output)
+
+    def test_it_names_the_structure_it_found(self) -> None:
+        self.assertIn("playing-card deck", self.output)
+        self.assertIn("Nothing was changed", self.output)
+
+    def test_it_does_not_offer_a_letters_only_reading_as_the_answer(self) -> None:
+        self.assertNotIn("BEST ANSWER", self.output)
+        self.assertNotIn("Monoalphabetic substitution", self.output)
+
+    def test_it_refuses_with_a_reason_and_a_next_step(self) -> None:
+        self.assertIn("IT IS NOT SOLVED", self.output.upper())
+        self.assertIn("homophonic", self.output)
+
+    def test_it_says_what_a_letters_only_reading_would_cost(self) -> None:
+        self.assertIn("would discard", self.output)
+
+    def test_trying_harder_does_not_fall_back_to_the_letters_pipeline(
+        self,
+    ) -> None:
+        """A bare Enter is 'search harder', never 'search something else'.
+
+        Self-escalation on this path is how the defect spent three minutes
+        climbing fast to normal to deep and arriving at a confident wrong
+        answer.
+        """
+        output = paste_session(card_message(), "", "", "q")
+        self.assertNotIn("BEST ANSWER", output)
+        self.assertNotIn("Monoalphabetic substitution", output)
+
+    def test_the_letters_only_reading_is_behind_an_explicit_choice(self) -> None:
+        output = paste_session(card_message(), "", "l", "q")
+        self.assertIn("NOT an answer", output)
+        self.assertIn("discard", output.lower())
+
+
+class TestAnalyseReportsTheSymbolStreamToo(unittest.TestCase):
+    """The refusal screen sends people to `analyse`; it must have the answer.
+
+    `analyse` reads the letters view like everything else, so on a card
+    cipher it reported 369 letters and nine distinct symbols and said nothing
+    about the 630 symbols that were actually there.
+    """
+
+    def test_it_names_the_structure_and_the_inventory(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "cards.txt"
+            path.write_text(card_message(), encoding="utf-8")
+            code, output = run("analyse", str(path))
+        self.assertEqual(code, 0)
+        self.assertIn("symbols:", output)
+        self.assertIn("digits", output)
+        self.assertIn("playing-card deck", output)
+
+    def test_an_ordinary_ciphertext_gets_no_structure_claim(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "caesar.txt"
+            path.write_text(caesar.encrypt(sample_plaintext(300), 3),
+                            encoding="utf-8")
+            code, output = run("analyse", str(path))
+        self.assertEqual(code, 0)
+        self.assertNotIn("paired alphabet", output)
+        self.assertNotIn("playing-card deck", output)
+
+
+class TestTheInventoryLineIsAlwaysHonest(unittest.TestCase):
+    def test_a_letters_only_paste_still_says_what_it_read(self) -> None:
+        output = paste_session(caesar.encrypt(sample_plaintext(200), 3),
+                               "", "q")
+        self.assertIn("200 symbols: 200 letters", output)
+        self.assertIn("BEST ANSWER", output)
+
+    def test_an_ordinary_message_carrying_a_date_takes_the_letters_path(
+        self,
+    ) -> None:
+        """Over-refusal is the second-worst outcome, so measure the boundary.
+
+        900 letters and 8 digits is a message with a date in it, not a symbol
+        cipher, and it must be solved exactly as it is today.
+        """
+        ciphertext = caesar.encrypt(sample_plaintext(900), 3) + " 12 03 19 07"
+        output = paste_session(ciphertext, "", "q")
+        self.assertIn("BEST ANSWER", output)
+        self.assertIn("908 symbols: 900 letters and 8 digits", output)
