@@ -253,5 +253,51 @@ class TestSegmentationDoesNotInventWordBreaks(unittest.TestCase):
         )
 
 
+class TestPartlyEnglishIsRecognised(unittest.TestCase):
+    """A correct decryption can contain a long stretch that is not prose.
+
+    Found on the 2017 challenge 5A, which the toolkit solved PERFECTLY and
+    then reported as weak. The message embeds a steganographic frieze -- a
+    run of black and white tiles, enciphered along with the words -- so the
+    correct plaintext is 900 letters of English, 1,500 letters of WWBWWWB,
+    and 300 more of English. Scored whole that is -2.070 per letter with 36
+    per cent word coverage, which is a failing grade for the right answer.
+
+    Windowed, the truth is obvious: -0.99 over the opening, -2.8 across the
+    tiles, -1.37 at the end. Competition messages routinely carry embedded
+    numbers, coordinates, keys or tiles, so a mean over the whole message
+    hides exactly the solves that matter most.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.scorer = default_scorer()
+        english = letters_only(
+            corpus_files()[0].read_text(encoding="utf-8"))[:900]
+        tiles = "WWWB" * 375                      # 1,500 letters, not prose
+        cls.mixed = english + tiles
+        cls.english = english
+
+    def test_the_whole_message_score_hides_it(self) -> None:
+        """The measurement that justifies the feature."""
+        self.assertLess(self.scorer.normalised(self.mixed), -1.5)
+        self.assertGreater(self.scorer.normalised(self.english), -1.3)
+
+    def test_the_english_portion_is_measured(self) -> None:
+        fraction = self.scorer.english_fraction(self.mixed)
+        self.assertGreater(fraction, 0.3,
+                           "900 English letters in 2,400 is a real find")
+
+    def test_pure_noise_has_no_english_portion(self) -> None:
+        import random
+
+        generator = random.Random(9)
+        noise = "".join(generator.choice(ALPHABET) for _ in range(2400))
+        self.assertLess(self.scorer.english_fraction(noise), 0.05)
+
+    def test_ordinary_english_is_almost_all_english(self) -> None:
+        self.assertGreater(self.scorer.english_fraction(self.english), 0.8)
+
+
 if __name__ == "__main__":
     unittest.main()

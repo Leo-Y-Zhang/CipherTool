@@ -929,3 +929,64 @@ def summarise(stats: TextStatistics) -> str:
         f"{stats.length} letters, {stats.unique_letters} distinct, "
         f"IC={stats.ic:.4f}, chi2/letter={stats.chi_squared:.3f}"
     )
+
+
+#: Window used to measure how many distinct letters are in play locally.
+LOW_ALPHABET_WINDOW = 100
+
+#: At or below this many distinct letters in a window, the text is not prose.
+#: MEASURED on the 2017 challenge 5A: 18 to 23 distinct letters per hundred
+#: across its prose, and exactly 2 across its enciphered tile frieze. Eight
+#: sits far from both, so the test does not depend on a fine judgement.
+LOW_ALPHABET_DISTINCT = 8
+
+#: A block must be at least this many letters to be worth setting aside.
+#: Shorter runs -- a spelled-out number, a repeated name -- are part of the
+#: message and removing them would lose more than it gained.
+LOW_ALPHABET_MINIMUM = 400
+
+
+def find_low_alphabet_block(
+    text: str,
+    *,
+    window: int = LOW_ALPHABET_WINDOW,
+    max_distinct: int = LOW_ALPHABET_DISTINCT,
+    minimum: int = LOW_ALPHABET_MINIMUM,
+) -> tuple[int, int] | None:
+    """The longest stretch that uses too few distinct letters to be prose.
+
+    Returns ``(start, end)`` over the letters-only text, or ``None``.
+
+    Competition messages carry embedded material that is not language: a
+    steganographic frieze, a run of coordinates, a key written out. It has to
+    be found because it does more damage than it looks. On the 2017 challenge
+    5A the frieze does not merely spoil the score of the right answer -- it
+    spoils the SEARCH. A key that is wrong everywhere scored -1.52 per letter
+    while the CORRECT key scored -2.07, because the correct one has to carry
+    1,500 letters of tiles. The true reading was not reachable while the
+    block was still in the text.
+    """
+    letters = "".join(ch for ch in text.upper() if "A" <= ch <= "Z")
+    if len(letters) < minimum + window:
+        return None
+
+    flags = []
+    for start in range(0, len(letters) - window + 1, window):
+        piece = letters[start:start + window]
+        flags.append(len(set(piece)) <= max_distinct)
+
+    best: tuple[int, int] | None = None
+    run_start: int | None = None
+    for index, low in enumerate(flags + [False]):
+        if low and run_start is None:
+            run_start = index
+        elif not low and run_start is not None:
+            start = run_start * window
+            end = index * window
+            if best is None or (end - start) > (best[1] - best[0]):
+                best = (start, end)
+            run_start = None
+
+    if best is None or (best[1] - best[0]) < minimum:
+        return None
+    return best

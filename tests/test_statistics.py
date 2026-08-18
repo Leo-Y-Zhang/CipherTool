@@ -286,5 +286,57 @@ class TestHypotheses(unittest.TestCase):
             self.assertIsInstance(render_report(analyse(text)), str)
 
 
+class TestLowAlphabetBlock(unittest.TestCase):
+    """Finding a stretch that was never prose.
+
+    From the 2017 challenge 5A: 900 letters of English, then 1,500 letters
+    of a steganographic frieze -- black and white tiles, enciphered with the
+    words -- then 300 more of English. MEASURED distinct letters per
+    100-letter window: 18 to 23 across the prose, exactly 2 across the
+    frieze.
+
+    This matters more than it looks. The block does not merely spoil the
+    score of a correct answer; it spoils the SEARCH, because a key that is
+    wrong everywhere scored better (-1.52 per letter) than the correct key
+    (-2.07), which has to carry 1,500 letters of tiles. The right answer was
+    not findable while the block was in the text.
+    """
+
+    def test_it_finds_the_block(self) -> None:
+        from cipher_tool.statistics import find_low_alphabet_block
+
+        prose = letters_only(corpus_files()[0].read_text(encoding="utf-8"))
+        text = prose[:900] + "WWWB" * 375 + prose[900:1200]
+        span = find_low_alphabet_block(text)
+        self.assertIsNotNone(span)
+        start, end = span
+        self.assertLess(abs(start - 900), 150)
+        self.assertLess(abs(end - 2400), 150)
+
+    def test_ordinary_english_has_no_such_block(self) -> None:
+        from cipher_tool.statistics import find_low_alphabet_block
+
+        prose = letters_only(corpus_files()[0].read_text(encoding="utf-8"))
+        self.assertIsNone(find_low_alphabet_block(prose[:2000]))
+
+    def test_a_short_run_is_not_worth_reporting(self) -> None:
+        """Two dozen letters of numbers spelled out is not a block."""
+        from cipher_tool.statistics import find_low_alphabet_block
+
+        prose = letters_only(corpus_files()[0].read_text(encoding="utf-8"))
+        text = prose[:1000] + "ABABAB" * 8 + prose[1000:2000]
+        self.assertIsNone(find_low_alphabet_block(text))
+
+    def test_random_letters_have_no_block(self) -> None:
+        import random
+
+        from cipher_tool.statistics import find_low_alphabet_block
+
+        generator = random.Random(2)
+        noise = "".join(generator.choice("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+                        for _ in range(2000))
+        self.assertIsNone(find_low_alphabet_block(noise))
+
+
 if __name__ == "__main__":
     unittest.main()

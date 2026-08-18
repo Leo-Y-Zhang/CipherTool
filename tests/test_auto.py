@@ -243,5 +243,52 @@ class TestReversedPlaintextIsFound(unittest.TestCase):
         self.assertNotIn("reversed", best.method.lower())
 
 
+class TestEmbeddedNonProseBlock(unittest.TestCase):
+    """A message that is part prose and part something else.
+
+    From the 2017 challenge 5A, which the toolkit decrypted perfectly and
+    reported as weak. 900 letters of English, 1,500 of a steganographic
+    frieze enciphered with the words, 300 more of English.
+
+    The block does not merely spoil the verdict, it spoils the SEARCH: a key
+    that is wrong everywhere scored -1.52 per letter against the CORRECT
+    key's -2.07, because the correct one has to carry the tiles. Measured,
+    the climber returned JUDIE/GUNE/OWT for JODIE/GONE/BUT no matter how
+    many restarts it was given -- and solved it immediately once the block
+    was out of the way.
+    """
+
+    @staticmethod
+    def _message() -> tuple[str, str]:
+        from cipher_tool import substitution
+
+        prose = sample_plaintext(1200)
+        plain = prose[:900] + "WWWB" * 375 + prose[900:1200]
+        key = substitution.SubstitutionKey.from_alphabet(
+            "QWERTYUIOPASDFGHJKLZXCVBNM")
+        return plain, substitution.encrypt(plain, key)
+
+    def test_the_prose_is_recovered(self) -> None:
+        plain, ciphertext = self._message()
+        best = auto_solve(ciphertext, effort="fast", top=1,
+                          seed=1).candidates.best()
+        self.assertIn(plain[:60], best.plaintext)
+
+    def test_it_says_a_block_was_set_aside(self) -> None:
+        _plain, ciphertext = self._message()
+        best = auto_solve(ciphertext, effort="fast", top=1,
+                          seed=1).candidates.best()
+        self.assertIn("non_prose_block", best.diagnostics)
+
+    def test_an_ordinary_message_is_untouched(self) -> None:
+        from cipher_tool import caesar
+
+        plain = sample_plaintext(600)
+        best = auto_solve(caesar.encrypt(plain, 5), effort="fast", top=1,
+                          seed=1).candidates.best()
+        self.assertEqual(best.plaintext, plain)
+        self.assertNotIn("non_prose_block", best.diagnostics)
+
+
 if __name__ == "__main__":
     unittest.main()

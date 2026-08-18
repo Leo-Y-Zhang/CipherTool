@@ -65,7 +65,8 @@ from . import (
 from .candidates import Candidate, CandidateSet, render_candidates
 from .normalize import NormalizedText, normalize
 from .scoring import EnglishScorer, annotate, default_scorer
-from .statistics import TextStatistics, analyse, summarise
+from .statistics import (TextStatistics, analyse,
+                         find_low_alphabet_block, summarise)
 
 EFFORT_LEVELS = ("fast", "normal", "deep")
 
@@ -108,6 +109,9 @@ class AutoResult:
     seconds: float = 0.0
     time_budget: float | None = None
     budget_exhausted: bool = False
+    #: Span of a stretch that was not prose and was set aside before
+    #: searching, as (start, end) over the original letters, or None.
+    non_prose_block: tuple[int, int] | None = None
 
     def render(self, *, top: int = 10, full_text: bool = False,
                show_stats: bool = False) -> str:
@@ -459,6 +463,25 @@ def auto_solve(
         ))
         return result
 
+    # A stretch that was never prose has to come out before anything is
+    # searched, not merely be excused afterwards. MEASURED on the 2017
+    # challenge 5A: with its 1,500-letter enciphered tile frieze still in
+    # place, a key that was wrong everywhere scored -1.52 per letter against
+    # the CORRECT key's -2.07, because the correct one had to carry the
+    # tiles. No number of restarts could reach the right answer; taking the
+    # block out found it immediately.
+    block = find_low_alphabet_block(normalized.letters)
+    if block is not None:
+        start, end = block
+        prose = normalized.letters[:start] + normalized.letters[end:]
+        if len(prose) >= 200:
+            normalized = normalize(prose)
+            stats = analyse(normalized)
+            result.normalized = normalized
+            result.stats = stats
+            result.candidates = CandidateSet(source_letters=normalized.letters)
+            result.non_prose_block = (start, end)
+
     plan = list(stages) if stages is not None else build_stages(effort, top, seed)
     plan = order_stages(plan, stats)
 
@@ -526,6 +549,16 @@ def auto_solve(
             best_confidence=best.confidence() if best else None,
             note=note,
         ))
+
+    if result.non_prose_block is not None:
+        start, end = result.non_prose_block
+        for candidate in result.candidates.ranked():
+            candidate.diagnostics["non_prose_block"] = (
+                f"letters {start}-{end} of the message use too few distinct "
+                "letters to be prose and were set aside before searching; "
+                "they are probably a key, a number run, or steganography, "
+                "and the reading above covers the rest"
+            )
 
     _add_reversed_readings(result.candidates, engine)
 

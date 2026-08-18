@@ -140,6 +140,38 @@ Add entries here as you work. Suggested headings: `Added`, `Changed`,
 
 ### Fixed
 
+- **A message that is only partly prose was reported as a failure, and could
+  not be solved at all.** Found by running the toolkit against the published
+  National Cipher Challenge archive. The 2017 challenge 5A was decrypted
+  perfectly and reported as `weak`: it carries a steganographic frieze, 1,500
+  letters of black and white tiles enciphered along with the words, and
+  averaged over the whole message the right answer scores -2.07 per letter
+  with 36 per cent word coverage. Window by window it is -0.99 across the
+  prose and -2.80 across the tiles.
+
+  Worse than the label, the block corrupted the SEARCH: a key wrong
+  everywhere scored -1.52 against the correct key's -2.07, because the
+  correct one has to carry the tiles, so the climber was right to prefer the
+  wrong key. 25, 80 and 200 restarts all plateaued on JUDIE/GUNE/OWT for
+  JODIE/GONE/BUT, and neither a two-letter swap nor a three-letter cycle
+  escaped it. Such a block is now found and set aside before any searching --
+  distinct letters per hundred ran 18 to 23 across the prose and exactly 2
+  across the frieze, so detection needs no fine judgement -- and every
+  candidate reports which letters were removed. Challenge 5A now solves in
+  5.0 seconds against 110 seconds of failure.
+
+  Supporting this, `EnglishScorer.english_fraction` measures how much of a
+  text reads as English window by window, and a candidate that scores weak
+  overall but is more than a third English by that measure is raised to
+  `promising` -- no further, since part of it genuinely is not English.
+
+- **Reversed plaintext was never considered.** Also found in the archive: the
+  2017 challenge 8A decrypted correctly and read backwards, scoring -1.999
+  per letter forwards against -1.176 reversed, so the pipeline discarded the
+  right answer. Every candidate's reverse is now scored and offered when it
+  is clearly better; that challenge went from unsolved to the full plaintext
+  at `strong` in 7.6 seconds.
+
 - **Playfair called a wrong answer `strong` on short text, and the README
   claimed it never did.** The README said "in none of the 25 runs did a wrong
   answer come back labelled `strong`, which is the property that matters

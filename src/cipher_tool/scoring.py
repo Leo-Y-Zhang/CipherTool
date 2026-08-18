@@ -107,6 +107,17 @@ def _letters(text: str) -> str:
     return "".join(ch for ch in text.upper() if "A" <= ch <= "Z")
 
 
+#: Score per letter at which one window counts as English, for
+#: :meth:`EnglishScorer.english_fraction`. Sits between the `promising` and
+#: `strong` thresholds in candidates.py, and is defined here rather than
+#: imported to keep scoring free of that dependency.
+#:
+#: MEASURED on the 2017 challenge 5A decrypted correctly: its prose windows
+#: ran -0.99 to -1.37 and its enciphered tile windows -2.78 to -2.88, so
+#: anything between about -1.5 and -2.5 separates them. -1.6 leaves room for
+#: prose that is harder than that message's.
+ENGLISH_WINDOW_NGRAM = -1.6
+
 #: A lexicon word no longer than this, sitting inside text the lexicon cannot
 #: explain, is a coincidence of letters rather than a word. NO is a word; the
 #: NO in TECHNOLOGY is not.
@@ -611,6 +622,37 @@ class EnglishScorer:
         """:meth:`segment` joined with spaces, for display."""
         return " ".join(self.segment(text))
 
+    def english_fraction(self, text: str, window: int = 200) -> float:
+        """How much of *text* reads as English, measured window by window.
+
+        A mean over the whole message is the wrong instrument when part of
+        the message is deliberately not prose, and competition messages are
+        full of such parts -- embedded numbers, coordinates, keys, or in the
+        case that prompted this, a steganographic frieze of black and white
+        tiles enciphered along with the words.
+
+        MEASURED on the 2017 challenge 5A, correctly decrypted: -0.99 per
+        letter across the opening, -2.8 across the 1,500 letters of tiles,
+        -1.37 at the end, and -2.070 for the message as a whole. Whole-text
+        scoring called a perfect solve `weak`. Windowed, three quarters of
+        the prose is plainly English and the answer is obvious.
+
+        Returns the fraction of whole windows that read as English. Short
+        texts get a single window, so this is never worse than the ordinary
+        measure.
+        """
+        letters = _letters(text)
+        if not letters:
+            return 0.0
+        size = min(window, len(letters))
+        windows = [letters[start:start + size]
+                   for start in range(0, len(letters) - size + 1, size)]
+        if not windows:
+            return 0.0
+        english = sum(1 for piece in windows
+                      if self.normalised(piece) >= ENGLISH_WINDOW_NGRAM)
+        return english / len(windows)
+
     def find_words(self, text: str, minimum_length: int = 4) -> list[str]:
         """Known words of at least *minimum_length* appearing in *text*.
 
@@ -718,6 +760,18 @@ def annotate(diagnostics: dict, plaintext: str, scorer: EnglishScorer) -> dict:
     report = scorer.breakdown(plaintext)
     diagnostics["normalised_score"] = report.ngram_per_letter
     diagnostics["word_coverage"] = report.word_coverage
+    # Recorded for every candidate, because a message that is only partly
+    # prose is otherwise indistinguishable from a failed decryption. Only
+    # reported when it disagrees with the whole-message view, so ordinary
+    # candidates are not cluttered with a number that says nothing new.
+    portion = scorer.english_fraction(plaintext)
+    if portion and report.ngram_per_letter < ENGLISH_WINDOW_NGRAM:
+        diagnostics["english_fraction"] = round(portion, 3)
+        diagnostics["partly_english"] = (
+            f"{portion:.0%} of this message reads as English window by "
+            "window, though the whole scores badly -- the rest may be "
+            "numbers, coordinates or a key rather than prose"
+        )
     words = scorer.find_words(plaintext, minimum_length=5)[:6]
     if words:
         diagnostics["words_seen"] = ", ".join(words)

@@ -156,5 +156,44 @@ class TestRendering(unittest.TestCase):
         self.assertIn("0.0667", text)
 
 
+class TestPartlyEnglishIsNotCalledFailure(unittest.TestCase):
+    """A correct solve whose message embeds non-prose must not read as weak.
+
+    From the 2017 challenge 5A, which the toolkit decrypted PERFECTLY and
+    then reported as weak. The message carries a steganographic frieze --
+    1,500 letters of black and white tiles, enciphered with the words -- so
+    scored whole the right answer is -2.070 per letter with 36 per cent word
+    coverage. Windowed, three quarters of the prose is plainly English.
+
+    The label is raised no further than `promising`, and deliberately: part
+    of the message genuinely is not English, so `strong` would overstate it.
+    But telling somebody their correct answer failed is worse than either.
+    """
+
+    def test_a_partly_english_reading_is_promoted_to_promising(self) -> None:
+        candidate = make(plaintext="X" * 40, score=-2.07 * 40,
+                         normalised_score=-2.07, word_coverage=0.36,
+                         english_fraction=0.40)
+        self.assertEqual(candidate.confidence(), "promising")
+
+    def test_it_is_not_promoted_all_the_way_to_strong(self) -> None:
+        candidate = make(plaintext="X" * 40, score=-2.07 * 40,
+                         normalised_score=-2.07, word_coverage=0.36,
+                         english_fraction=0.95)
+        self.assertNotEqual(candidate.confidence(), "strong")
+
+    def test_noise_with_no_english_portion_stays_where_it_was(self) -> None:
+        candidate = make(plaintext="X" * 40, score=-3.0 * 40,
+                         normalised_score=-3.0, word_coverage=0.05,
+                         english_fraction=0.0)
+        self.assertIn(candidate.confidence(), {"weak", "unlikely"})
+
+    def test_a_strong_reading_is_never_weakened_by_this(self) -> None:
+        candidate = make(plaintext="X" * 40, score=-0.8 * 40,
+                         normalised_score=-0.8, word_coverage=0.9,
+                         english_fraction=1.0)
+        self.assertEqual(candidate.confidence(), "strong")
+
+
 if __name__ == "__main__":
     unittest.main()

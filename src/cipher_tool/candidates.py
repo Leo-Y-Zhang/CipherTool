@@ -46,6 +46,12 @@ from typing import Any, Iterable, Iterator, Sequence
 _STRONG_NGRAM = -1.15
 _STRONG_COVERAGE = 0.72
 _PROMISING_NGRAM = -1.80
+
+#: How much of a message must read as English, window by window, before a
+#: badly-scoring whole is treated as a partial solve rather than a failure.
+#: Measured on the case that prompted it, roughly a third of the 2017
+#: challenge 5A is prose and the rest is an enciphered tile frieze.
+_PARTIAL_ENGLISH_FRACTION = 0.35
 _PROMISING_COVERAGE = 0.35
 _WEAK_NGRAM = -2.40
 
@@ -128,6 +134,22 @@ class Candidate:
             label = "weak"
         else:
             label = "unlikely"
+
+        # A message can be correctly decrypted and still score badly as a
+        # whole, because part of it was never prose. MEASURED on the 2017
+        # challenge 5A, decrypted perfectly: -2.070 per letter and 36 per
+        # cent word coverage, because 1,500 of its 2,778 letters are a
+        # steganographic frieze of black and white tiles enciphered along
+        # with the words. Windowed, the prose is plainly English. Telling
+        # somebody their correct answer failed is the worst outcome here.
+        #
+        # Raised no further than `promising`, deliberately: part of the
+        # message really is not English, so `strong` would overstate it. And
+        # only ever raised -- a reading that already scores well is untouched.
+        if label in {"weak", "unlikely"}:
+            portion = self.diagnostics.get("english_fraction")
+            if portion is not None and portion >= _PARTIAL_ENGLISH_FRACTION:
+                label = "promising"
 
         cap = self.diagnostics.get("confidence_cap")
         if cap in CONFIDENCE_ORDER:
