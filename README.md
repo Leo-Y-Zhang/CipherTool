@@ -566,6 +566,36 @@ Stated plainly, because a tool that hides its weaknesses wastes your time.
   setter has done something clever, this toolkit will not find it and you
   will have to think.
 
+## Measured against real challenges
+
+Seventeen ciphertexts from the published National Cipher Challenge archive
+(the 2017 and 2018 seasons, whose challenge pages are public), run exactly as
+the paste screen runs them -- start at `fast`, climb while the reading is not
+`strong`, stop at `deep`:
+
+| Outcome | Count |
+|---|---|
+| Solved, labelled `strong` | 10 |
+| Solved, labelled `promising` | 1 |
+| Not solved, labelled `weak` -- no answer offered | 6 |
+
+Nine of the eleven solves take under thirty seconds. The six failures are a
+long-key polyalphabetic (index of coincidence 0.042 against English's 0.067,
+and not in depth -- the pairwise difference streams are flat at 0.038) and a
+transposition whose key this toolkit has not found. **In none of the six does
+it offer a wrong answer**, which is the property that matters when one error
+is a rejected submission.
+
+That is the honest number, and it is worth contrasting with the one this
+project could have quoted instead. Encrypting messages with its own code and
+asking itself to solve them gave thirteen families out of thirteen. The same
+build managed two of seventeen against real competition material the first
+time it was pointed at it. **A capability map built from your own encryptions
+measures a tool against itself.** Everything between those two figures --
+reversed plaintext, messages that are only partly prose, a stage silently
+dropped for refusing a time budget, a solver labelling wrong answers
+`strong` -- came from the archive and from nowhere else.
+
 ## Testing
 
 ```bash
