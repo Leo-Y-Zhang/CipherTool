@@ -587,33 +587,70 @@ Stated plainly, because a tool that hides its weaknesses wastes your time.
 
 ## Measured against real challenges
 
-Seventeen ciphertexts from the published National Cipher Challenge archive
-(the 2017 and 2018 seasons, whose challenge pages are public), run exactly as
-the paste screen runs them -- start at `fast`, climb while the reading is not
-`strong`, stop at `deep`:
+Forty ciphertexts from the published National Cipher Challenge archive -- the
+2016, 2017, 2018, 2023 and 2024 seasons, whose challenge pages are public --
+run exactly as the paste screen runs them: start at `fast`, climb while the
+reading is not `strong`, stop at `deep`, and set no overall time limit,
+because the paste screen sets none either.
+
+Twenty-two of the forty have their plaintext published underneath them, so
+they can be **graded** rather than eyeballed:
 
 | Outcome | Count |
 |---|---|
-| Solved, labelled `strong` | 10 |
-| Solved, labelled `promising` | 1 |
-| Not solved, labelled `weak` -- no answer offered | 6 |
+| Graded against the published answer, solved | 22 |
+| Graded, not solved | 0 |
+| No published answer, read as coherent English | 18 |
+| **Labelled `strong` without being solved** | **0** |
 
-Nine of the eleven solves take under thirty seconds. The six failures are a
-long-key polyalphabetic (index of coincidence 0.042 against English's 0.067,
-and not in depth -- the pairwise difference streams are flat at 0.038) and a
-transposition whose key this toolkit has not found. **In none of the six does
-it offer a wrong answer**, which is the property that matters when one error
-is a rejected submission.
+Every one of the twenty-two matched its published answer on 100% of letters.
+Thirty-three of the forty finished at `fast`, three at `normal` and four at
+`deep`; the median run was 13.6 seconds and the slowest 300.
 
-That is the honest number, and it is worth contrasting with the one this
-project could have quoted instead. Encrypting messages with its own code and
-asking itself to solve them gave thirteen families out of thirteen. The same
-build managed two of seventeen against real competition material the first
-time it was pointed at it. **A capability map built from your own encryptions
-measures a tool against itself.** Everything between those two figures --
-reversed plaintext, messages that are only partly prose, a stage silently
-dropped for refusing a time budget, a solver labelling wrong answers
-`strong` -- came from the archive and from nowhere else.
+The eighteen without a published answer are the 2023 and 2024 seasons, which
+do not print their solutions. All eighteen came back `strong` and all read as
+coherent period English -- "MR CHARLES BABBAGE, DORSET STREET, MARYLEBONE,
+LONDON", "MY DEAR ADA, I AM SORRY FOR THE DELAY IN MY REPLY" -- with word
+coverage between 0.84 and 0.90 against 0.90 to 0.97 for a verified solve, the
+gap being proper nouns the lexicon does not carry. **They are recorded as
+unverified, not as solved.** Nothing here counts a reading the toolkit
+graded for itself.
+
+### What that number is worth, and what it cost to get right
+
+It is worth contrasting with the figure this project could have quoted
+instead. Encrypting messages with its own code and asking itself to solve
+them gave thirteen families out of thirteen. The same build managed **two of
+seventeen** against real competition material the first time it was pointed
+at it. **A capability map built from your own encryptions measures a tool
+against itself.**
+
+Almost everything between those two figures came from the archive and from
+nowhere else: reversed plaintext, messages that are only partly prose, a
+stage silently dropped for refusing a time budget, a solver labelling wrong
+answers `strong`, and two whole cipher families that were missing -- a fixed
+shuffle inside every block, which turns out to be used in six of these forty,
+and a polyalphabetic with a transposition laid over it.
+
+The harness itself was wrong four times, which is worth saying plainly
+because a measuring stick is the last thing anyone checks:
+
+- A regex glued challenge 5's two parts into one file, and the toolkit was
+  blamed for failing on a message that was two ciphers.
+- The same regex later **split one challenge into five**, because the 2017
+  challenge 7B text contains four underscores marking letters too damaged to
+  read. All five fragments came back `weak` and were recorded as five
+  unsolved challenges. They are one message, and it now solves exactly.
+- Answers were paired with ciphertexts by their position on the page, then by
+  their length. Both are wrong -- the pages publish answers for parts whose
+  ciphertext is an image -- and the first graded a perfect reading at 7.9%.
+  Answers are now identified by content.
+- The harness passed a whole-pipeline time limit the paste screen never sets,
+  which starved one search of nine tenths of its budget and cost a challenge
+  that the real tool solves in ninety seconds.
+
+**Check your own measuring stick before you file a defect against the thing
+it is measuring.**
 
 ## Testing
 

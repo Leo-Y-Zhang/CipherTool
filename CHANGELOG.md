@@ -12,6 +12,28 @@ nothing to publish to.
 Add entries here as you work. Suggested headings: `Added`, `Changed`,
 `Fixed`, `Removed`.
 
+### Changed
+
+- **The archive scoreboard is now graded against the published answers, over
+  five seasons instead of two.** Forty ciphertexts from 2016, 2017, 2018,
+  2023 and 2024. Of the twenty-two that publish a plaintext, **all twenty-two
+  are solved at 100% of letters, and none came back `strong` without being
+  solved**. The other eighteen read as coherent English but have no published
+  answer and are recorded as unverified.
+
+  The previous figure, eleven of seventeen, was measured through a harness
+  that was wrong in three separate ways: it split the 2017 challenge 7B
+  message into five files on four damaged characters and filed each fragment
+  as an unsolved challenge; it paired answers to ciphertexts by position on
+  the page; and it imposed a whole-pipeline time limit the paste screen never
+  sets, which starved the Bifid square search of nine tenths of its budget
+  and cost a challenge the real tool solves in ninety seconds. **Check your
+  own measuring stick before filing a defect against the thing it measures.**
+
+  The README's testing note also said the suite runs in about two minutes. It
+  runs in fifteen minutes and forty-two seconds, and had been wrong for
+  several releases.
+
 ### Added
 
 - **An attack on two ciphers piled up: a polyalphabetic with a transposition
