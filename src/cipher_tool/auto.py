@@ -62,16 +62,15 @@ from . import (
     polybius,
     rail_fence,
     stacked,
-    unscramble,
     substitution,
     transposition,
+    unscramble,
     vigenere,
 )
 from .candidates import Candidate, CandidateSet, render_candidates
 from .normalize import Inventory, NormalizedText, normalize
 from .scoring import EnglishScorer, annotate, default_scorer
-from .statistics import (TextStatistics, analyse,
-                         find_low_alphabet_block, summarise)
+from .statistics import TextStatistics, analyse, find_low_alphabet_block, summarise
 
 EFFORT_LEVELS = ("fast", "normal", "deep")
 
@@ -591,6 +590,48 @@ def auto_solve(
     )
 
     if normalized.is_empty:
+        # ⚠ A LETTERLESS PASTE IS NOT AN EMPTY PASTE. A Polybius, Nihilist or
+        # straddling-checkerboard ciphertext is ALL DIGITS -- the digits are
+        # the message, not decoration around it. This early exit used to end
+        # the solve before a single stage ran, and 2023 challenge 8B was
+        # "refused" in 0.0 seconds because of it: 2,714 digits over five
+        # symbols, a plain 5x5 square, which `polybius.solve_unknown_square`
+        # cracks in seven seconds at `strong` when it is simply handed the
+        # stream. The capability was already here; nothing reached it.
+        #
+        # Same family as the digits-stripped defect fixed on 18 Aug. That one
+        # threw digits away when letters were present; this one threw the
+        # whole message away when they were not.
+        digits = "".join(c for c in symbol_stream if c.isdigit())
+        distinct = set(digits)
+        # ⚠ An ODD count must not refuse the message. Requiring an even length
+        # looked obviously right and threw away two more real challenges:
+        # 2024 7B (2,315 digits) and 8B (3,025), both plain five-symbol
+        # squares. Hand-copied competition material loses or gains a symbol
+        # routinely, and the last digit of an odd stream is simply an
+        # incomplete pair -- dropping THAT one is safe, where dropping a
+        # leading one would misalign every pair after it. The oddity is
+        # reported in the stage note rather than hidden.
+        odd = len(digits) % 2
+        usable = digits[:len(digits) - odd]
+        if len(usable) >= 100 and 2 <= len(distinct) <= 6:
+            started = time.monotonic()
+            found = polybius.solve_unknown_square(usable, top=top, seed=seed)
+            ranked = found.ranked()[:top]
+            for candidate in ranked:
+                result.candidates.add(candidate)
+            best = result.candidates.best()
+            result.stages.append(StageReport(
+                "Polybius (digit stream)", "fractionating", ran=True,
+                seconds=time.monotonic() - started, candidates=len(ranked),
+                best_score=best.score if best else None,
+                best_confidence=best.confidence() if best else None,
+                note=(f"{len(digits)} digits over {len(distinct)} symbols; "
+                      "read as coordinate pairs"
+                      + (" (odd count: the final unpaired digit was left out)"
+                         if odd else "")),
+            ))
+            return result
         result.stages.append(StageReport(
             "input check", "none", ran=False,
             note="the input contains no letters, so nothing was attempted",
