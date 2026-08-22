@@ -1941,11 +1941,13 @@ def _paste_message(
     while True:
         print()
         print("-" * 72)
-        print("  [c] COPY-READY answer on its own   [f] save it to a file")
-        print("  [Enter] try harder   [a] all candidates   [w] why (stats)")
-        if material:
-            print("  [l] the letters-only reading (NOT an answer)")
-        print("  [s] full command shell   [n] new message   [q] quit")
+        # Operator, 2026-08-22: "idk what half of the options even do so just
+        # make sure that it can work for anything". Eight choices on the screen
+        # that has just handed back an answer is a menu asking the reader to
+        # know the toolkit. Three are enough: take the answer, ask another
+        # question, leave. Everything else still exists as a typed word for
+        # anyone who wants it -- nothing was removed, only stopped shouting.
+        print("  [c] copy the answer    [Enter] another message    [q] quit")
         try:
             typed = input("  > ")
         except (EOFError, KeyboardInterrupt):
@@ -2012,17 +2014,23 @@ def _paste_message(
                   "Solving it instead.")
             return _paste_message(args, typed)
 
+        # A bare Enter now means "another message", because that is what a
+        # person who has just been handed an answer wants next. Searching
+        # harder moved OFF the Enter key and onto the word, and off the menu
+        # entirely: on the ordinary path the ladder already climbs itself
+        # before the answer is printed, so a reader who has to press Enter to
+        # get a real search is being asked to do the tool's job.
+        if not choice:
+            return _paste_message(args, None)
+
         # Anything else typed is a mistake, and saying so beats obeying a
-        # command nobody gave. Silently treating it as "try harder" made the
-        # menu look broken: at 'deep' every keystroke printed the same
-        # already-as-hard-as-it-goes line, whatever had been typed.
-        if choice:
+        # command nobody gave.
+        if choice not in {"harder", "deeper", "more"}:
             print(f"\n  '{typed.strip()}' is not one of the options above.")
-            print("  Press Enter on its own to search harder, [n] for a new "
-                  "message, or [q] to quit.")
+            print("  [c] to copy the answer, Enter for another message, "
+                  "[q] to quit.")
             continue
 
-        # A bare Enter means "search harder".
         if effort == "fast":
             effort = "normal"
         elif effort == "normal":

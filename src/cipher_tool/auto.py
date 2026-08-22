@@ -62,6 +62,7 @@ from . import (
     polybius,
     rail_fence,
     stacked,
+    unscramble,
     substitution,
     transposition,
     vigenere,
@@ -412,6 +413,25 @@ def build_stages(effort: str, top: int, seed: int | None) -> list[Stage]:
         # signal inside contiguous blocks; everything else gets nothing.
         Stage("stacked (polyalphabetic + transposition)", "polyalphabetic",
               "normal", 4.0, stacked.solve, {"top": top, "seed": seed}),
+
+        # The OTHER stacking order, and the one the stage above cannot see: a
+        # MONOALPHABETIC substitution with a block permutation over it. That is
+        # 2025 challenge 6A, which survived the substitution solver at every
+        # effort level for five minutes and was correctly reported `weak` the
+        # whole time -- honest, and useless to the person holding it.
+        #
+        # `stacked` cannot cover it BY CONSTRUCTION: it exits early when the
+        # index of coincidence looks English, and a substitution under a
+        # transposition has an IC of exactly English (6A measured 0.0666). The
+        # letters were never flattened, only moved.
+        #
+        # It earns a place on --fast because it refuses in about a second: the
+        # detector scores letter ORDER with a statistic that ignores letter
+        # NAMES, so it strips the permutation without touching the key, and
+        # every width is scored against a shuffle of the same letters before
+        # anything is reported.
+        Stage("unscramble (substitution + block permutation)", "substitution",
+              "fast", 3.0, unscramble.solve, {"top": top, "seed": seed}),
 
         # Double columnar carries its own time_budget rather than trusting
         # the caller to set max_time, because without one it is unbounded in
