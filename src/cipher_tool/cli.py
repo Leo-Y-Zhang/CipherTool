@@ -1990,7 +1990,7 @@ def _paste_message(
             print(render_candidates(result.candidates.ranked(), top=10,
                                     full_text=True, title="Every candidate"))
             continue
-        if choice in {"w", "why"}:
+        if choice in {"w", "why", "stats"}:
             print(render_report(result.stats))
             continue
         if choice in {"l", "letters"} and material:
@@ -2029,6 +2029,17 @@ def _paste_message(
             print(f"\n  '{typed.strip()}' is not one of the options above.")
             print("  [c] to copy the answer, Enter for another message, "
                   "[q] to quit.")
+            # The menu was cut to three on purpose, but the rest did not go
+            # away -- they stopped shouting. Naming them HERE keeps the
+            # ordinary screen clean while leaving them findable at the exact
+            # moment somebody is looking for something that is not on it.
+            # `letters` is offered only when there IS a symbol stream to read
+            # that way, because the handler is guarded on `material` and
+            # naming it otherwise would advertise a word that does nothing.
+            extra = "stats, all, why, shell, harder, save"
+            if material:
+                extra += ", letters"
+            print(f"  Also, typed in full: {extra}.")
             continue
 
         if effort == "fast":

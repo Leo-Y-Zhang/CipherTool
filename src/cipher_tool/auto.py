@@ -590,7 +590,7 @@ def auto_solve(
     )
 
     if normalized.is_empty:
-        # ⚠ A LETTERLESS PASTE IS NOT AN EMPTY PASTE. A Polybius, Nihilist or
+        # NOTE: A LETTERLESS PASTE IS NOT AN EMPTY PASTE. A Polybius, Nihilist or
         # straddling-checkerboard ciphertext is ALL DIGITS -- the digits are
         # the message, not decoration around it. This early exit used to end
         # the solve before a single stage ran, and 2023 challenge 8B was
@@ -604,7 +604,7 @@ def auto_solve(
         # whole message away when they were not.
         digits = "".join(c for c in symbol_stream if c.isdigit())
         distinct = set(digits)
-        # ⚠ An ODD count must not refuse the message. Requiring an even length
+        # NOTE: An ODD count must not refuse the message. Requiring an even length
         # looked obviously right and threw away two more real challenges:
         # 2024 7B (2,315 digits) and 8B (3,025), both plain five-symbol
         # squares. Hand-copied competition material loses or gains a symbol

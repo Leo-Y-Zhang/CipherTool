@@ -106,6 +106,14 @@ class Scramble:
 
     @property
     def gap(self) -> float:
+        """How far the finding beats its own null control, in score points.
+
+        This is the number that decides whether anything is reported at all.
+        The raw ``score`` is not evidence on its own: an exhaustive search
+        over ``w!`` orders always finds one that scores above average, so what
+        matters is the margin over the same search run on a shuffle of the
+        same letters.
+        """
         return self.score - self.control
 
 
@@ -148,7 +156,7 @@ def apply_inverse(letters: str, permutation: Sequence[int]) -> str:
 def _best(letters: str, width: int) -> tuple[float, tuple[int, ...]]:
     """Best NON-IDENTITY rearrangement, and the permutation that reached it.
 
-    ⚠ The identity is excluded deliberately, and leaving it in was a real
+    NOTE: The identity is excluded deliberately, and leaving it in was a real
     defect caught by the first control run: at width 2 the identity "wins" on
     any English-derived text, because it changes nothing and so keeps the
     natural bigram structure, while the shuffled control has none. The

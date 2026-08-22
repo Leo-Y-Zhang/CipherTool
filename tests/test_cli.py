@@ -781,10 +781,32 @@ class TestPasteMenuDoesNotSwallowInput(unittest.TestCase):
         self.assertIn("not one of the options", output)
         self.assertNotIn("Searching harder", output)
 
-    def test_a_bare_enter_still_means_try_harder(self) -> None:
-        """The fix must not break the documented behaviour of the menu."""
+    def test_a_bare_enter_starts_another_message(self) -> None:
+        """Enter takes the next message; it no longer means "search harder".
+
+        Changed deliberately on the operator's instruction, 2026-08-22: "the
+        pasting and enter on the new blank line is fine but the other options
+        are not needed... just get me the answer". Making the reader press
+        Enter to obtain a real search is asking them to do the tool's job, and
+        the ordinary path already climbs fast -> normal -> deep by itself
+        before the answer is printed.
+
+        This replaces ``test_a_bare_enter_still_means_try_harder``, which
+        pinned the old meaning. The coverage is kept rather than dropped: the
+        assertion is simply the other way round, and "harder" survives as a
+        typed word for anyone who wants it.
+        """
         first_plain, _ = self._corpus()
         output = paste_session(caesar.encrypt(first_plain, 3), "", "", "q")
+        self.assertNotIn("Searching harder", output)
+        self.assertIn("Paste your ciphertext below", output.split(
+            "BEST ANSWER")[-1], "Enter did not start a new message")
+
+    def test_harder_still_works_as_a_typed_word(self) -> None:
+        """Nothing was removed from the menu, only stopped shouting."""
+        first_plain, _ = self._corpus()
+        output = paste_session(caesar.encrypt(first_plain, 3), "",
+                               "harder", "q")
         self.assertIn("Searching harder", output)
 
 

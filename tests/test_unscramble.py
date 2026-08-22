@@ -15,8 +15,7 @@ is that defect, pinned.
 from __future__ import annotations
 
 import random
-
-import pytest
+import unittest
 
 from cipher_tool import unscramble
 
@@ -38,8 +37,7 @@ def substitute(text: str, seed: int = 7) -> str:
     letters = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
     shuffled = letters[:]
     random.Random(seed).shuffle(shuffled)
-    table = str.maketrans("".join(letters), "".join(shuffled))
-    return text.translate(table)
+    return text.translate(str.maketrans("".join(letters), "".join(shuffled)))
 
 
 def scramble(text: str, permutation: tuple[int, ...]) -> str:
@@ -52,57 +50,66 @@ def scramble(text: str, permutation: tuple[int, ...]) -> str:
     return "".join(out)
 
 
-def test_finds_a_period_four_scramble_under_a_substitution() -> None:
-    """The 2025 6A shape: substitute, then shuffle in blocks of four."""
-    ciphertext = scramble(substitute(PLAIN), (0, 3, 2, 1))
-    found = unscramble.detect(ciphertext)
-    assert found is not None, "the scramble was missed entirely"
-    assert found.width == 4
-    assert found.text[:40] == substitute(PLAIN)[:40], (
-        "detected, but the recovered order is wrong"
-    )
+class DetectScramble(unittest.TestCase):
+    def test_finds_a_period_four_scramble_under_a_substitution(self) -> None:
+        """The 2025 6A shape: substitute, then shuffle in blocks of four."""
+        ciphertext = scramble(substitute(PLAIN), (0, 3, 2, 1))
+        found = unscramble.detect(ciphertext)
+        self.assertIsNotNone(found, "the scramble was missed entirely")
+        assert found is not None
+        self.assertEqual(found.width, 4)
+        self.assertEqual(
+            found.text[:40], substitute(PLAIN)[:40],
+            "detected, but the recovered order is wrong",
+        )
+
+    def test_recovers_several_widths(self) -> None:
+        for permutation in ((1, 0), (0, 2, 1), (2, 0, 3, 1)):
+            with self.subTest(permutation=permutation):
+                ciphertext = scramble(substitute(PLAIN), permutation)
+                found = unscramble.detect(ciphertext)
+                self.assertIsNotNone(found)
+                assert found is not None
+                self.assertEqual(found.text[:40], substitute(PLAIN)[:40])
 
 
-def test_identity_is_not_a_finding() -> None:
-    """A plain substitution is NOT scrambled, so the detector must stay silent.
+class StaysSilent(unittest.TestCase):
+    """The dangerous direction: firing on something that is not scrambled."""
 
-    Pins the real defect: allowing the identity permutation let the detector
-    "discover" that it had undone nothing, and report that as a scramble.
-    """
-    assert unscramble.detect(substitute(PLAIN)) is None
+    def test_identity_is_not_a_finding(self) -> None:
+        """A plain substitution is NOT scrambled, so it must stay silent.
 
+        Pins the real defect: allowing the identity permutation let the
+        detector "discover" that it had undone nothing, and report it.
+        """
+        self.assertIsNone(unscramble.detect(substitute(PLAIN)))
 
-def test_silent_on_ordinary_english() -> None:
-    """Unenciphered text is not scrambled either."""
-    assert unscramble.detect(PLAIN) is None
+    def test_silent_on_ordinary_english(self) -> None:
+        self.assertIsNone(unscramble.detect(PLAIN))
 
+    def test_silent_on_random_letters(self) -> None:
+        """Noise has no order to restore, so there is nothing to find."""
+        letters = list(PLAIN)
+        random.Random(1).shuffle(letters)
+        self.assertIsNone(unscramble.detect("".join(letters)))
 
-def test_silent_on_random_letters() -> None:
-    """Noise has no order to restore, so there is nothing to find in it."""
-    letters = list(PLAIN)
-    random.Random(1).shuffle(letters)
-    assert unscramble.detect("".join(letters)) is None
-
-
-def test_refuses_below_the_minimum_length() -> None:
-    """Too few bigrams for the statistic to mean anything."""
-    assert unscramble.detect("MYDEARBABBAGE" * 3) is None
+    def test_refuses_below_the_minimum_length(self) -> None:
+        self.assertIsNone(unscramble.detect("MYDEARBABBAGE" * 3))
 
 
-@pytest.mark.parametrize("permutation", [(1, 0), (0, 2, 1), (2, 0, 3, 1)])
-def test_recovers_several_widths(permutation: tuple[int, ...]) -> None:
-    ciphertext = scramble(substitute(PLAIN), permutation)
-    found = unscramble.detect(ciphertext)
-    assert found is not None
-    assert found.text[:40] == substitute(PLAIN)[:40]
+class Statistic(unittest.TestCase):
+    def test_concentration_ignores_letter_names(self) -> None:
+        """Substitution-invariance is the load-bearing assumption.
+
+        It is what lets the transposition be stripped off before the cipher
+        underneath is known. If this ever fails, the whole method fails.
+        """
+        self.assertAlmostEqual(
+            unscramble.concentration(PLAIN),
+            unscramble.concentration(substitute(PLAIN)),
+            places=12,
+        )
 
 
-def test_concentration_ignores_letter_names() -> None:
-    """The statistic must be substitution-invariant, or the whole method fails.
-
-    This is the load-bearing assumption: it is what lets the transposition be
-    stripped off before the cipher underneath is known.
-    """
-    assert unscramble.concentration(PLAIN) == pytest.approx(
-        unscramble.concentration(substitute(PLAIN))
-    )
+if __name__ == "__main__":
+    unittest.main()
