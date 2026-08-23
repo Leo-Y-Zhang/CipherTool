@@ -2379,6 +2379,185 @@ collapse; it changes the move set, not a constant.
   that alternation breaks, every unit past the break is a fiction, and this
   module refuses and names the index rather than reading one.
 
+## The Playfair same-column variant (`playfair.py`)
+
+### What changes
+
+A pair sharing a COLUMN moves along the row, exactly as a pair sharing a row
+does, instead of down the column. Nothing else changes.
+
+### Why it is dangerous rather than merely different
+
+A same-column digraph is about one in seven, so **two thirds of a message
+decrypts identically under either rule**. That is more than enough for the
+square search to converge on the RIGHT square and then read a fluent, partly
+wrong plaintext off it.
+
+MEASURED on a real 1,502-letter competition message. The square the search
+found -- agreed on by 16 of 40 independent restarts -- decrypted:
+
+| case | digraphs | correct |
+|---|---|---|
+| rectangle | 541 | 541 |
+| same row | 111 | 111 |
+| same column | 99 | **0** |
+
+The search had done its whole job. One rule out of three was wrong, and the
+answer came back as fluent English at 0.61 word coverage, wrong in 99 places.
+**No amount of extra searching fixes that**, because the search was already at
+its optimum. Under the variant rule the same square returns all 1,502 letters
+of the published plaintext.
+
+### How it is wired, and what that costs
+
+A SECOND pass, not an always-on doubling. It runs only when no reading under
+the ordinary rule scored as clear English, so an ordinary Playfair pays
+nothing -- the screen is free, because a legible answer means there is nothing
+here to look for. And a variant reading of a particular square is added only
+when it scores better than the ordinary reading of that same square, so an
+ordinary message never collects a second, worse answer beside a correct one.
+
+## Crossed-coordinate digraph cipher (`crossed.py`)
+
+### The construction
+
+A unit is two cells and carries one plaintext DIGRAPH. Index the first cell
+`6p + q` and the second `4u + v`. Then
+
+    first plaintext letter  = SQUARE_ONE[q][u]
+    second plaintext letter = SQUARE_TWO[p][v]
+
+Each cell carries one coordinate of each letter, so the two letters'
+coordinates are interleaved ACROSS the two cells. `paired.py` could already
+recognise a message written this way -- it names a 52-card deck, its two
+disjoint sub-decks of 36 and 16, and a unit of two cells, unaided -- and then
+stops, because it is a recogniser. This module reads it.
+
+### Why it is breakable at all
+
+Read as a codebook the problem is 576 cells against about 1,661 units of
+message: under two observations per cell, underdetermined, and a blind search
+over it produces confident garbage. Read as the construction, `576 = 24 x 24`
+and the unknowns are two 24-letter squares -- **48, not 576**. The
+construction is the way in, not more text.
+
+### Stage one: recognition, which needs no key
+
+Split each cell index into a high and a low coordinate and try the four ways
+of pairing one part of the first cell with one part of the second. Under the
+TRUE pairing each half of the plaintext is a plain monoalphabetic substitution
+and keeps English's index of coincidence; under any other, the classes are
+mixtures and the distribution flattens.
+
+Measured over 192 candidate readings of a real message: **0.0669 for the true
+split against 0.0445 for the worst.** No key is involved, so this stage cannot
+be fooled by search size.
+
+### Stage two: climbing the two squares
+
+Plain hill-climbing is NOT enough, and the measurement says so: 12 restarts of
+20,000 steps reached -1.78 per letter where the true key scores -0.9478,
+because a swap inside one square is judged through the other square's noise.
+Simulated annealing from a frequency-ranked start reaches the true key on the
+first restart.
+
+### What it will not do
+
+It does not search cell orderings freely: only ascending, descending and the
+two playing-card conventions are tried. A message ordered by some private
+convention is refused rather than guessed at. The bound is stated in the
+module rather than hidden.
+
+### Two calibrated guards
+
+* The recognition bar is 0.060 because the true split scores 0.0641 at 600
+  units and 0.0580 at 300 -- where the recovery gets 8 per cent of the letters
+  right. The bar turns a length floor into a measurement.
+* Below 900 units the reading is capped. At 600 units the attack recovered
+  97.5 per cent of the letters at 0.72 word coverage, which clears both
+  `strong` thresholds and is still not the plaintext.
+
+## Nihilist (`nihilist.py`)
+
+### The construction
+
+Plaintext letter and key letter are both looked up in the same 5x5 Polybius
+square and written as a two-digit coordinate, row then column, each digit
+1-5. The ciphertext number is their sum. There is NO CARRY between the digits,
+so the tens and the units of a sum each run 2..10 independently.
+
+### The attack is a constraint, not a score
+
+Every value in one residue class shares a key coordinate `k`, so `value - k`
+must be a valid coordinate for EVERY value in the class. Sweep `k` over the 25
+coordinates and keep the survivors. A wrong period mixes key letters, the
+class spreads wider than any single `k` can cover, and no `k` survives -- the
+period is EXCLUDED, not merely outscored. That is a stronger kind of evidence
+than a statistic, because a statistic can be fooled by search size and a value
+ending in 1 cannot be a Nihilist sum whatever the key.
+
+Measured on 1,494 tokens of real material, periods 1 to 14: every period
+except 7 and its multiple 14 left a class with zero feasible keys, and period
+7 left EXACTLY ONE feasible key in each of its seven classes.
+
+Subtracting the key leaves a monoalphabetic substitution over 25 cells, which
+`substitution.py` already solves -- and that solve recovers the square too, so
+the key word and the square can both be checked by hand.
+
+### Why it needs the raw text
+
+The tokens are whitespace-separated, of variable width, and run past 99.
+Normalising keeps the digits and throws the separators away, which turns
+`"97 26 57"` into `"972657"` -- six single digits instead of three numbers.
+So `parse` reads the raw text, and `auto_solve` structurally cannot reach this
+family, because by the time it sees the message the boundaries are gone. The
+paste screen can, and does.
+
+## Polybius with split coordinates (`seriated.py`)
+
+### The construction
+
+An ordinary Polybius interleaves the coordinates: row, column, row, column.
+This one writes **every row coordinate first and every column coordinate
+after**, so the two halves of the message are the two rows of the
+fractionation table read one after the other.
+
+### Finding it
+
+Score the pairing rather than the letters: the index of coincidence of the
+cells, or the share of the message held by its ten commonest cell bigrams. A
+substitution renames cells and cannot move either; a WRONG pairing produces
+cells that are not letters and both collapse towards uniform.
+
+The search is TINY, and that is what makes the finding safe. A true split
+fractionation has two halves of equal length by construction, so the split can
+only be at the middle give or take a stray symbol -- thirteen candidates, not
+two thousand. There is nowhere to go fishing.
+
+### The measurements, including the negative control
+
+On the message this was built for, the split at 1,513 gives cell index of
+coincidence **0.0663** and top-ten bigram share **0.1880**. The reference is an
+ordinary Polybius already solved and graded against its published decrypt:
+**0.0692** and **0.1844** -- the same numbers.
+
+The control is the part that matters. Swept over ALL 2,600 split positions
+rather than just the middle, the ordinary Polybius message's best split scores
+0.0436 against a median of 0.0409: the sweep finds NOTHING on a message that
+is not seriated. The seriated message's true split stands 0.0213 clear of the
+best of every other split in its own text. One position, no plateau, no second
+candidate.
+
+### The guard a control produced
+
+Handed an ordinary INTERLEAVED Polybius whose plaintext repeated with a period
+dividing the half-length, the detector paired every symbol with an identical
+one and reported an index of coincidence of **0.204** -- the highest number
+anywhere in this exercise, from five distinct cells, on the wrong cipher
+entirely. A high index of coincidence is also what a COLLAPSE looks like, and
+nothing else in the detector could tell the two apart. A floor on distinct
+cells now sits underneath it.
+
 ## Stacked ciphers: a polyalphabetic under a transposition (`stacked.py`)
 
 ### The problem

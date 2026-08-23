@@ -43,15 +43,18 @@ from . import (
     columnar,
     context as context_module,
     cribs,
+    crossed,
     encodings,
     hill,
     homophonic,
     keyword_cipher,
+    nihilist,
     paired,
     playfair,
     polybius,
     permutation,
     rail_fence,
+    seriated,
     stacked,
     substitution,
     transposition,
@@ -1421,13 +1424,19 @@ def _solve_symbol_stream(
 ) -> Any | None:
     """Try the solvers that can read a stream of symbols rather than letters.
 
-    Three of them can, and between them they cover what actually turns up:
+    Four of them can, and between them they cover what actually turns up:
     ``encodings`` recognises hex, binary, decimal, Base64 and Morse, the
     Polybius square search reads a numeric cipher without being told the
-    square, and the homophonic family reads a stream with more distinct
-    symbols than there are letters. All three refuse anything they cannot make
-    sense of, so running them speculatively costs nothing and asks the user
-    for nothing.
+    square, ``crossed`` reads a paired-cell digraph cipher, and the homophonic
+    family reads a stream with more distinct symbols than there are letters.
+    All four refuse anything they cannot make sense of, so running them
+    speculatively costs nothing and asks the user for nothing.
+
+    ``crossed`` is the one that closes the gap this function used to have.
+    ``paired.recognise`` could already name a 52-card deck, its two disjoint
+    sub-decks and a unit of two cells, and then nothing downstream could read
+    that shape -- so the only honest output was a refusal, which is what this
+    screen printed on the playing-card cipher. It now returns the plaintext.
 
     Was ``_solve_letterless``. It is called on two paths now: a paste with no
     letters at all, which is what it was written for, and a paste whose
@@ -1445,14 +1454,43 @@ def _solve_symbol_stream(
     # `--max-time` used to stop at the letters-only pipeline, which shares its
     # deadline across stages by weight while this path quietly ran as long as
     # it liked: a five-second budget took forty-one seconds. The homophonic
-    # search is the only one of the three that can run long, so it gets the
-    # budget; the other two refuse or finish almost immediately.
+    # search is the only one of these that can run unboundedly, so it gets the
+    # budget; the others refuse, finish almost immediately, or -- in the case
+    # of `crossed` -- are bounded by a step count rather than a clock.
     budget = args.max_time if getattr(args, "max_time", None) else None
+
+    # `crossed` restarts are capped rather than taken from the effort ladder.
+    # MEASURED: it recovers the key on the first restart at every length where
+    # it recovers it at all, so twelve restarts at `deep` would be eight
+    # minutes buying nothing. A stage that runs long without being able to
+    # reach anything new reads as coverage and is not.
+    crossed_restarts = min(restarts, 2)
+
+    # DEFECT, found 2026-08-23: the Polybius square search reads its input as
+    # coordinate PAIRS and returns nothing at all on an odd symbol count.
+    # `auto_solve`'s letterless branch already knew that and dropped the final
+    # unpaired symbol -- but the paste screen does not go through that branch,
+    # it comes here, so the fix never reached the screen anybody uses. 2024
+    # challenge 8B (3,025 digits) and 7B (2,317) were both refused with "this
+    # is not a letter cipher" and a suggestion to run `cipher_tool polybius`,
+    # which would have refused them for the same reason.
+    #
+    # Drop the LAST symbol only. Dropping a leading one misaligns every pair
+    # after it, which turns a readable message into noise.
+    paired_safe = "".join(raw.split())
+    if len(paired_safe) % 2:
+        paired_safe = paired_safe[:-1]
 
     for solver in (
         lambda: encodings.solve(normalized, scorer=engine, top=3),
-        lambda: polybius.solve_unknown_square(raw, scorer=engine, top=3,
-                                              seed=args.seed),
+        lambda: polybius.solve_unknown_square(paired_safe, scorer=engine,
+                                              top=3, seed=args.seed),
+        lambda: nihilist.solve(raw, scorer=engine, top=3, seed=args.seed,
+                               **({"time_budget": budget} if budget else {})),
+        lambda: seriated.solve(paired_safe, scorer=engine, top=3,
+                               seed=args.seed),
+        lambda: crossed.solve(normalized, scorer=engine, top=3,
+                              seed=args.seed, restarts=crossed_restarts),
         lambda: homophonic.solve(normalized, scorer=engine, top=3,
                                  seed=args.seed, restarts=restarts,
                                  **({"time_budget": budget} if budget else {})),
@@ -1697,9 +1735,23 @@ def _render_answer(
                 lines.extend(f"  {piece}"
                              for piece in _wrap_words(paragraph, 68))
         lines.append("")
-        lines.append("  The reading below treats every symbol as one letter. "
-                     "If the")
-        lines.append("  pairing above is real, that is the wrong unit.")
+        # The caveat is about a reading that IGNORED the pairing, so it must
+        # not be printed over a reading that used it. Printing it anyway told
+        # the reader that a correct, unit-aware answer was answering the wrong
+        # question -- a warning that contradicts the answer above it is worse
+        # than no warning, because it teaches people to ignore the warnings.
+        best = result.candidates.best()
+        read_in_units = (best is not None
+                         and best.method == crossed.METHOD)
+        if read_in_units:
+            lines.append("  The reading below USES that pairing: each unit of "
+                         "two cells")
+            lines.append("  was read as one plaintext pair, not as four "
+                         "letters.")
+        else:
+            lines.append("  The reading below treats every symbol as one "
+                         "letter. If the")
+            lines.append("  pairing above is real, that is the wrong unit.")
         lines.append("")
 
     # The plaintext is printed flush to the left margin, with no indent and

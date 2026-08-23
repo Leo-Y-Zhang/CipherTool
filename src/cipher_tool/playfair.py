@@ -768,8 +768,33 @@ def validate_ciphertext(text: str, square: PlayfairSquare) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
+#: The ordinary same-column rule: a pair sharing a column moves DOWN the
+#: column to encipher.
+COLUMN_RULE_DOWN = "down"
+
+#: The variant same-column rule: a pair sharing a column moves ALONG THE ROW
+#: instead, exactly as a pair sharing a row does.
+#:
+#: MEASURED, and it is not a hypothetical. On a real 1,502-letter competition
+#: message the square search converged on one square from 16 of 40 independent
+#: restarts, and that square decrypted **541 of 541 rectangle digraphs and 111
+#: of 111 same-row digraphs correctly, and 0 of 99 same-column digraphs**. The
+#: square was exactly right; one rule out of three was not. Under this rule the
+#: same square returns all 1,502 letters of the published plaintext.
+COLUMN_RULE_SIDEWAYS = "sideways"
+
+COLUMN_RULES = (COLUMN_RULE_DOWN, COLUMN_RULE_SIDEWAYS)
+
+#: How a reading made under the variant rule is named.
+VARIANT_METHOD = "Playfair (same-column rule reversed)"
+
+
 def _transform_pair(
-    square: PlayfairSquare, first: str, second: str, step: int
+    square: PlayfairSquare,
+    first: str,
+    second: str,
+    step: int,
+    column_rule: str = COLUMN_RULE_DOWN,
 ) -> tuple[str, str]:
     """Apply the three Playfair rules to one pair.
 
@@ -778,6 +803,12 @@ def _transform_pair(
     rectangle rule takes no step, because swapping the two columns back is the
     same operation as swapping them in the first place -- it is its own
     inverse, which is why the same branch serves both directions.
+
+    *column_rule* selects what a pair sharing a COLUMN does. Setters do vary
+    this, and the variant is invisible to a square search: two thirds of a
+    message decrypts identically under either rule, which is more than enough
+    for the search to find the right square and then read a fluent, partly
+    wrong plaintext off it.
     """
     row_first, column_first = square.position(first)
     row_second, column_second = square.position(second)
@@ -788,6 +819,11 @@ def _transform_pair(
             square.at(row_second, column_second + step),
         )
     if column_first == column_second:
+        if column_rule == COLUMN_RULE_SIDEWAYS:
+            return (
+                square.at(row_first, column_first + step),
+                square.at(row_second, column_second + step),
+            )
         return (
             square.at(row_first + step, column_first),
             square.at(row_second + step, column_second),
@@ -805,6 +841,7 @@ def encrypt(
     filler: str = DEFAULT_FILLER,
     alternative: str = DEFAULT_ALTERNATIVE_FILLER,
     omit: str = DEFAULT_OMITTED,
+    column_rule: str = COLUMN_RULE_DOWN,
 ) -> str:
     """Encrypt. Operates on letters only; returns letters only, uppercase.
 
@@ -818,7 +855,8 @@ def encrypt(
     )
     out: list[str] = []
     for pair in pairs:
-        head, tail = _transform_pair(square, pair[0], pair[1], +1)
+        head, tail = _transform_pair(square, pair[0], pair[1], +1,
+                                     column_rule)
         out.append(head)
         out.append(tail)
     return "".join(out)
@@ -829,6 +867,7 @@ def decrypt(
     key: str | PlayfairSquare,
     *,
     omit: str = DEFAULT_OMITTED,
+    column_rule: str = COLUMN_RULE_DOWN,
 ) -> str:
     """Exact inverse of :func:`encrypt` for the same key.
 
@@ -852,7 +891,7 @@ def decrypt(
     out: list[str] = []
     for index in range(0, len(letters), 2):
         head, tail = _transform_pair(
-            square, letters[index], letters[index + 1], -1
+            square, letters[index], letters[index + 1], -1, column_rule
         )
         out.append(head)
         out.append(tail)
@@ -946,6 +985,7 @@ def _digraph_score(
     compressed: Sequence[tuple[int, int, int]],
     square: list[int],
     table: Sequence[float],
+    column_rule: str = COLUMN_RULE_DOWN,
 ) -> float:
     """Score a square by the digraph statistics of what it decrypts to.
 
@@ -967,8 +1007,12 @@ def _digraph_score(
             head = square[row_first * 5 + (column_first - 1) % 5]
             tail = square[row_second * 5 + (column_second - 1) % 5]
         elif column_first == column_second:
-            head = square[((row_first - 1) % 5) * 5 + column_first]
-            tail = square[((row_second - 1) % 5) * 5 + column_second]
+            if column_rule == COLUMN_RULE_SIDEWAYS:
+                head = square[row_first * 5 + (column_first - 1) % 5]
+                tail = square[row_second * 5 + (column_second - 1) % 5]
+            else:
+                head = square[((row_first - 1) % 5) * 5 + column_first]
+                tail = square[((row_second - 1) % 5) * 5 + column_second]
         else:
             head = square[place_first - column_first + column_second]
             tail = square[place_second - column_second + column_first]
@@ -977,7 +1021,8 @@ def _digraph_score(
 
 
 def _decrypt_values(
-    pairs: Sequence[tuple[int, int]], square: list[int]
+    pairs: Sequence[tuple[int, int]], square: list[int],
+    column_rule: str = COLUMN_RULE_DOWN,
 ) -> list[int]:
     """Decrypt encoded pairs with an encoded square. The hot loop.
 
@@ -1002,9 +1047,14 @@ def _decrypt_values(
             append(square[row_first * 5 + (column_first - 1) % 5])
             append(square[row_second * 5 + (column_second - 1) % 5])
         elif column_first == column_second:
-            # Same column: step UP to decrypt, wrapping.
-            append(square[((row_first - 1) % 5) * 5 + column_first])
-            append(square[((row_second - 1) % 5) * 5 + column_second])
+            if column_rule == COLUMN_RULE_SIDEWAYS:
+                # The variant: step LEFT, exactly as a shared row does.
+                append(square[row_first * 5 + (column_first - 1) % 5])
+                append(square[row_second * 5 + (column_second - 1) % 5])
+            else:
+                # Same column: step UP to decrypt, wrapping.
+                append(square[((row_first - 1) % 5) * 5 + column_first])
+                append(square[((row_second - 1) % 5) * 5 + column_second])
         else:
             # Rectangle: swap the columns. Self-inverse, so no direction.
             append(square[place_first - column_first + column_second])
@@ -1132,6 +1182,7 @@ def _polish(
     pairs: Sequence[tuple[int, int]],
     square: list[int],
     scorer: EnglishScorer,
+    column_rule: str = COLUMN_RULE_DOWN,
 ) -> tuple[list[int], float, int]:
     """Steepest ascent from an annealed square, under the order-3 model.
 
@@ -1147,7 +1198,7 @@ def _polish(
     """
     score_values = scorer.score_values
     current = list(square)
-    best = score_values(_decrypt_values(pairs, current))
+    best = score_values(_decrypt_values(pairs, current, column_rule))
     evaluated = 1
 
     improving = True
@@ -1157,12 +1208,12 @@ def _polish(
             for second in range(first + 1, SQUARE_LETTERS):
                 trial = list(current)
                 trial[first], trial[second] = trial[second], trial[first]
-                value = score_values(_decrypt_values(pairs, trial))
+                value = score_values(_decrypt_values(pairs, trial, column_rule))
                 evaluated += 1
                 if value > best:
                     best, current, improving = value, trial, True
         for trial in _structural_moves(current):
-            value = score_values(_decrypt_values(pairs, trial))
+            value = score_values(_decrypt_values(pairs, trial, column_rule))
             evaluated += 1
             if value > best:
                 best, current, improving = value, trial, True
@@ -1181,6 +1232,7 @@ def _search(
     temperature: float,
     rng: random.Random,
     deadline: float | None,
+    column_rule: str = COLUMN_RULE_DOWN,
 ) -> Iterator[_SearchResult]:
     """Yield the best square of each of *restarts* independent annealing runs.
 
@@ -1220,7 +1272,7 @@ def _search(
 
         square = list(alphabet_values)
         rng.shuffle(square)
-        current = _digraph_score(compressed, square, table)
+        current = _digraph_score(compressed, square, table, column_rule)
         evaluated += 1
         best_square = list(square)
         best_score = current
@@ -1232,7 +1284,7 @@ def _search(
                     break
             temp = temperature * (1.0 - move / iterations)
             trial = _modify(square, rng)
-            value = _digraph_score(compressed, trial, table)
+            value = _digraph_score(compressed, trial, table, column_rule)
             evaluated += 1
             delta = value - current
             if delta > 0.0 or (temp > 0.0 and rng.random() < exp(delta / temp)):
@@ -1242,7 +1294,8 @@ def _search(
                     best_score = value
                     best_square = list(trial)
 
-        polished, quadgram, used = _polish(pairs, best_square, scorer)
+        polished, quadgram, used = _polish(pairs, best_square, scorer,
+                                           column_rule)
         evaluated += used
         yield _SearchResult(
             letters=from_numbers(polished),
@@ -1366,6 +1419,32 @@ def _outlook(length: int) -> str:
     )
 
 
+#: A second pass needs at least this long to be worth starting at all.
+MINIMUM_SECOND_PASS_SECONDS = 0.05
+
+
+def variant_pass_budget(
+    deadline: float | None, now: float
+) -> tuple[bool, float | None]:
+    """What the variant second pass may spend: (run at all, seconds left).
+
+    Pulled out as a function so the decision can be tested without a clock.
+    The bug it pins is real and was mine: the second pass was handed the
+    caller's ORIGINAL ``time_budget``, so a stage given eight seconds could
+    take sixteen. ``auto_solve`` shares one deadline across every stage by
+    weight, so that overrun comes straight out of the searches that follow it.
+
+    ``None`` for *deadline* means no budget at all, and the second pass
+    inherits that.
+    """
+    if deadline is None:
+        return True, None
+    remaining = deadline - now
+    if remaining <= MINIMUM_SECOND_PASS_SECONDS:
+        return False, 0.0
+    return True, remaining
+
+
 def solve(
     source: str | NormalizedText,
     *,
@@ -1380,6 +1459,7 @@ def solve(
     seed: int | None = None,
     stop_when_strong: bool = True,
     time_budget: float | None = None,
+    column_rule: str = COLUMN_RULE_DOWN,
 ) -> CandidateSet:
     """Attack Playfair ciphertext and return ranked candidates, never one answer.
 
@@ -1546,9 +1626,10 @@ def solve(
         temperature=heat,
         rng=rng,
         deadline=deadline,
+        column_rule=column_rule,
     ):
         square = square_from_letters(result.letters, omit=reference.omitted)
-        plaintext = decrypt(letters, square)
+        plaintext = decrypt(letters, square, column_rule=column_rule)
         evidence: dict[str, object] = {}
         annotate(evidence, plaintext, engine)
         attempts.append((result, plaintext, evidence))
@@ -1612,15 +1693,94 @@ def solve(
         if budget_hit:
             diagnostics["time_budget_hit"] = True
         diagnostics.update(evidence)
+        if column_rule == COLUMN_RULE_SIDEWAYS:
+            diagnostics["column_rule"] = COLUMN_RULE_SIDEWAYS
+            diagnostics["column_rule_note"] = (
+                "a pair sharing a column was read ALONG THE ROW rather than "
+                "down the column"
+            )
         results.add(
             Candidate(
-                method="Playfair",
-                key=f"square={square.letters}",
+                method=(VARIANT_METHOD if column_rule == COLUMN_RULE_SIDEWAYS
+                        else "Playfair"),
+                key=(f"square={square.letters}"
+                     + (", column rule=sideways"
+                        if column_rule == COLUMN_RULE_SIDEWAYS else "")),
                 score=engine.score(plaintext),
                 plaintext=plaintext,
                 diagnostics=diagnostics,
                 display=normalized.relayout(plaintext),
             )
         )
+
+        # The same square, read with the OTHER same-column rule.
+        #
+        # WHY THIS IS NOT SPECULATIVE SEARCH. A same-column digraph is about
+        # one in seven, so two thirds of a message decrypts identically under
+        # either rule -- which is more than enough for the square search to
+        # converge on the RIGHT square and then read a fluent, partly wrong
+        # plaintext off it. Measured on a real 1,502-letter message: the
+        # square found by 16 of 40 independent restarts decrypted 541 of 541
+        # rectangle digraphs and 111 of 111 same-row digraphs correctly, and
+        # 0 of 99 same-column digraphs. The search had already done its job.
+        #
+        # Offered only when it reads BETTER than the ordinary rule, so an
+        # ordinary Playfair never gains a second, worse answer.
+        try:
+            variant = ("" if column_rule == COLUMN_RULE_SIDEWAYS
+                       else decrypt(letters, square, omit=omit,
+                                    column_rule=COLUMN_RULE_SIDEWAYS))
+        except ValueError:
+            variant = ""
+        if variant and variant != plaintext:
+            variant_score = engine.score(variant)
+            if variant_score > engine.score(plaintext):
+                variant_diagnostics = dict(diagnostics)
+                variant_diagnostics["column_rule"] = COLUMN_RULE_SIDEWAYS
+                variant_diagnostics["column_rule_note"] = (
+                    "a pair sharing a column was read ALONG THE ROW rather "
+                    "than down the column; the same square under the ordinary "
+                    "rule scored "
+                    f"{engine.normalised(plaintext):+.4f} per letter against "
+                    f"{engine.normalised(variant):+.4f} for this one"
+                )
+                annotate(variant_diagnostics, variant, engine)
+                results.add(
+                    Candidate(
+                        method=VARIANT_METHOD,
+                        key=f"square={square.letters}, column rule=sideways",
+                        score=variant_score,
+                        plaintext=variant,
+                        diagnostics=variant_diagnostics,
+                        display=normalized.relayout(variant),
+                    )
+                )
+
+    # NOTHING LEGIBLE UNDER THE ORDINARY RULE: try the other one.
+    #
+    # Run as a SECOND pass rather than always, because the ordinary rule is
+    # overwhelmingly the common case, and doubling every Playfair search to
+    # cover a variant would pay that cost on every message to answer a
+    # question almost none of them ask. The screen is free: a reading that
+    # already scores as clear English leaves nothing here to find.
+    if (column_rule == COLUMN_RULE_DOWN and restarts
+            and not supplied):
+        # THE CLOCK IS NOT RESTARTED. Passing `time_budget` straight through
+        # would hand the second pass a whole fresh budget, so a stage given
+        # eight seconds could take sixteen -- and `auto_solve` shares one
+        # deadline across every stage by weight, so that overrun is taken out
+        # of the searches that come after. What is left of the original
+        # deadline is what the second pass gets, and if nothing is left it
+        # does not run at all.
+        may_run, remaining = variant_pass_budget(deadline, time.monotonic())
+        leader = results.best()
+        if may_run and (leader is None or leader.confidence() != "strong"):
+            for candidate in solve(
+                source, scorer=engine, top=top, omit=omit, restarts=restarts,
+                iterations=iterations, temperature=temperature, seed=seed,
+                stop_when_strong=stop_when_strong, time_budget=remaining,
+                column_rule=COLUMN_RULE_SIDEWAYS,
+            ).ranked():
+                results.add(candidate)
 
     return _trimmed(results, top)

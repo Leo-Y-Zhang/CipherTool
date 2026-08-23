@@ -181,11 +181,14 @@ cipher_tool analyse message.txt
 python run_tests.py
 ```
 
-You should see about 1,300 tests pass, plus roughly 3,000 subtests.
-Budget a quarter of an hour on a laptop: measured at 15 minutes 42
-seconds. Nearly all of it is the randomised climbs, which are slow on
-purpose -- an earlier version of this line said two minutes and had
-been wrong for several releases.
+You should see about 1,485 tests pass, plus roughly 3,000 subtests.
+Budget half an hour on a laptop: measured at 33 minutes 19 seconds on a
+machine that was busy with something else at the time, and 27 minutes 34
+seconds earlier the same evening. Nearly all of it is the randomised
+climbs, which are slow on purpose -- an earlier version of this line said
+two minutes and had been wrong for several releases, and the line after
+that said 15 minutes 42 seconds and went stale the same way. Re-measure
+it rather than trusting it.
 
 ---
 
@@ -393,10 +396,20 @@ express), route and grid transpositions including boustrophedon, spirals from
 each corner, and diagonal reads.
 **Digraphic and fractionating** -- Polybius (5x5 with I/J merged or Q
 dropped, 6x6 alphanumeric, arbitrary labels including ADFGX), Bifid with
-period, Playfair, Hill 2x2 and 3x3, **ADFGVX and ADFGX** (fractionation
+period, Playfair (including the variant whose same-column pairs move along the row rather than down the column -- two thirds of a message reads the same either way, so the wrong rule produces fluent, wrong English that no amount of extra search would fix), Hill 2x2 and 3x3, **ADFGVX and ADFGX** (fractionation
 through a keyed square followed by a columnar transposition -- the attack
 recovers the transposition key AND rebuilds the square, so the answer can be
-checked by hand).
+checked by hand), **Nihilist** (a Polybius square plus a repeating additive
+key: the period and the key are DEDUCED rather than searched, because a sum of
+two carry-free coordinates can never end in 1, and a wrong period leaves a
+class of values that no single key can decode), and a **crossed-coordinate
+digraph cipher** (a unit of two cells carrying one plaintext pair, each cell
+holding one coordinate of each letter -- 576 cells that are really two
+24-letter squares, which is why 48 unknowns can be recovered where 576 could
+not), and a **split-coordinate Polybius** (every row coordinate written first
+and every column coordinate after, rather than interleaved -- found by
+splitting at the middle, because a true split fractionation has two halves of
+equal length by construction).
 **Stacked ciphers** -- **a periodic polyalphabetic with a columnar
 transposition laid over it**, which is what "piling up ciphers" means in this
 competition. Every other solver here attacks one cipher, and against a stack

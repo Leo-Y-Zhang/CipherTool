@@ -12,7 +12,154 @@ nothing to publish to.
 Add entries here as you work. Suggested headings: `Added`, `Changed`,
 `Fixed`, `Removed`.
 
+### Added
+
+- **`crossed.py` -- a digraph cipher whose two letters have their coordinates
+  crossed.** `paired.py` could already recognise a message written as a
+  52-card deck, name its two disjoint sub-decks and say the unit is two cells,
+  and then stop, because it is a recogniser and says so. Nothing downstream
+  could read that shape, so the only honest output was a refusal. This is the
+  missing solver.
+
+  The construction: index the first cell `6p + q` and the second `4u + v`;
+  the first plaintext letter is `SQUARE_ONE[q][u]` and the second is
+  `SQUARE_TWO[p][v]`. Each cell carries one coordinate of each letter.
+
+  That crossing is also the way in. Read as a codebook the problem is 576
+  cells against 1,661 units of message -- under two observations each,
+  underdetermined, and a blind search over it produces confident garbage. Read
+  as the construction it is **two 24-letter squares: 48 unknowns, not 576**,
+  and 1,661 units is far more than enough.
+
+  Recognition needs no key at all. Split each cell index into a high and a low
+  coordinate and try the four ways of pairing one part of each cell: under the
+  true pairing each half of the plaintext is a plain monoalphabetic
+  substitution and keeps English's index of coincidence, and under any other
+  the classes are mixtures and the distribution flattens. Measured over 192
+  candidate readings of a real message: 0.0669 for the true split against
+  0.0445 for the worst.
+
+  Plain hill-climbing on the two squares is NOT enough, and the measurement
+  says so: 12 restarts of 20,000 steps reached -1.78 per letter where the true
+  key scores -0.9478. Simulated annealing from a frequency-ranked start
+  reaches the true key on the first restart, about six seconds per restart on
+  1,661 units.
+
+  Two guards, both calibrated rather than guessed. The recognition bar sits at
+  0.060 because the true split scores 0.0641 at 600 units and only 0.0580 at
+  300, where the recovery gets 8 per cent of the letters right -- so the bar
+  turns a length floor into a measurement. And below 900 units the reading is
+  capped: at 600 units the attack recovered 97.5 per cent of the letters at
+  0.72 word coverage, which clears both `strong` thresholds and is still not
+  the plaintext.
+
+- **`nihilist.py` -- a Polybius square plus a repeating additive key.** Three
+  files in this repository already NAMED the Nihilist cipher as a competition
+  staple that arrives as digits. None of them could read one, because its
+  tokens are whitespace-separated, of variable width, and run past 99, so
+  `"97 26 57 58 105"` was either invisible or destroyed by normalisation.
+
+  The attack is a CONSTRAINT rather than a score, which is what makes it
+  decisive rather than suggestive. Both coordinates are two digits with no
+  carry, so a sum's tens and units each run 2..10 independently and a value
+  ending in 1 is impossible whatever the key. Split by a candidate period:
+  every value in a class shares one key coordinate `k`, so `value - k` must be
+  a valid coordinate for EVERY value in the class. A wrong period spreads the
+  class wider than any `k` can cover and is excluded outright.
+
+  Measured on 1,494 tokens of real competition material, periods 1 to 14:
+  every period except 7 and its multiple 14 left a class with zero feasible
+  keys, and period 7 left exactly ONE feasible key in each of its seven
+  classes. The key is not searched for, it is deduced. Subtracting it leaves a
+  monoalphabetic substitution over 25 cells, which the substitution solver
+  already handles -- and that solve recovers the square too, so the answer can
+  be checked by hand, square and key word and all.
+
+- **`seriated.py` -- a Polybius square whose two coordinates are written as
+  two BLOCKS.** An ordinary Polybius interleaves them: row, column, row,
+  column. This one writes every row coordinate first and every column
+  coordinate after, so the two halves of the message are the two rows of the
+  fractionation table read one after the other. Nothing paired symbols that
+  way, and 2024 challenge 8B -- 3,025 digits over five symbols -- survived the
+  Polybius square search, bifid at every period 2 to 30, an ADFGX-style
+  columnar at every width 2 to 12, and the whole pipeline at deep effort,
+  always at `weak`. The setter's own hint on that page is *"Sometimes you need
+  to look at something from a different angle"*, which is about geometry, not
+  keys.
+
+  The search is tiny, and that is what makes the finding safe rather than
+  lucky. A true split fractionation has two halves of EQUAL LENGTH by
+  construction, so the split can only be at the middle give or take a stray
+  symbol: thirteen candidates, not two thousand.
+
+  MEASURED. On 2024 8B the split at 1,513 gives cell index of coincidence
+  0.0663 and top-ten bigram share 0.1880. The reference is 2023 8B, an
+  ordinary Polybius already solved and graded against its published decrypt:
+  0.0692 and 0.1844 -- the same numbers. And the negative control, which is
+  the part that matters: swept over ALL 2,600 split positions rather than just
+  the middle, 2023 8B's best scores 0.0436 against a median of 0.0409, so the
+  sweep finds nothing on a message that is not seriated, while 2024 8B's true
+  split stands 0.0213 clear of every other split in its own message.
+
+  One guard was added because a CONTROL produced it, not because anyone
+  reasoned it out. Handed an ordinary interleaved Polybius whose plaintext
+  repeated with a period dividing the half-length, the detector paired every
+  symbol with an identical one and reported an index of coincidence of 0.204
+  -- the highest number in the whole exercise, from five distinct cells, on
+  the wrong cipher entirely. A high index of coincidence is also what a
+  COLLAPSE looks like, so a floor on distinct cells now sits underneath it.
+
+- **Playfair with the same-column rule reversed.** A pair sharing a column
+  moves ALONG THE ROW instead of down the column. Setters vary this, and the
+  variant is close to invisible to a square search: a same-column digraph is
+  about one in seven, so two thirds of a message decrypts identically under
+  either rule.
+
+  That is not a curiosity, it is the most dangerous shape of answer this
+  toolkit can produce. MEASURED on a real 1,502-letter competition message:
+  the shipped square search converged on ONE square from 16 of 40 independent
+  restarts, and that square decrypted **541 of 541 rectangle digraphs and 111
+  of 111 same-row digraphs correctly, and 0 of 99 same-column digraphs.** The
+  search had done its whole job; one rule out of three was wrong. The result
+  was fluent English at 0.61 word coverage -- readable, plausible, wrong in 99
+  places -- and no amount of extra searching would ever have fixed it.
+
+  Under the variant rule the same square returns all 1,502 letters of the
+  published plaintext, and the whole message now solves blind at `strong` with
+  0.81 word coverage.
+
+  Wired as a SECOND pass rather than always, so an ordinary Playfair pays
+  nothing: the variant search runs only when no reading under the ordinary
+  rule scored as clear English. And a variant reading of a square is offered
+  only when it scores better than the ordinary reading of that same square, so
+  an ordinary message never gains a second, worse answer.
+
 ### Fixed
+
+- **The paste screen refused an odd-length digit stream, and then told the
+  reader to run a command that would refuse it too.** The Polybius square
+  search reads its input as coordinate PAIRS and returns nothing at all on an
+  odd symbol count. `auto_solve`'s letterless branch already knew that and
+  dropped the final unpaired symbol -- but `handle_paste` does not go through
+  that branch, it goes through `cli._solve_symbol_stream`, so **the fix was
+  real, tested, and unreachable from the only screen the operator uses.**
+  A 3,025-digit challenge was answered with "this is not a letter cipher" and
+  a suggestion to run `cipher_tool polybius`, which refuses it identically: a
+  dead end presented as a next step.
+
+  The last symbol is now dropped on that path too. The LAST one only --
+  dropping a leading symbol misaligns every pair after it and turns a readable
+  message into noise. Pinned by tests that drive the CLI helper rather than
+  `auto_solve`, because that distinction is exactly what the defect turned on:
+  the library call passed while the user journey failed.
+
+- **A correct, unit-aware reading was printed under a warning saying it was
+  the wrong unit.** The note "the reading below treats every symbol as one
+  letter, if the pairing above is real that is the wrong unit" is about a
+  reading that IGNORED the pairing, and it was printed unconditionally -- so a
+  `crossed` answer that used the pairing arrived with a caveat contradicting
+  it. A warning that contradicts the answer above it is worse than no warning,
+  because it teaches people to ignore the warnings.
 
 - **A reading made of one short word repeated is no longer labelled `strong`.**
   Both confidence signals read the plaintext and neither counted how many

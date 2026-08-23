@@ -52,6 +52,7 @@ from . import (
     bifid,
     caesar,
     columnar,
+    crossed,
     encodings,
     hill,
     homophonic,
@@ -61,6 +62,7 @@ from . import (
     playfair,
     polybius,
     rail_fence,
+    seriated,
     stacked,
     substitution,
     transposition,
@@ -388,6 +390,28 @@ def build_stages(effort: str, top: int, seed: int | None) -> list[Stage]:
         Stage("homophonic", "homophonic", "fast", 8.0, homophonic.solve,
               {"top": top, "restarts": (2, 6, 12)[scale], "seed": seed},
               reads="symbols"),
+        # A paired-cell digraph cipher. Registered at `fast` for the same
+        # reason as the two above: recognition costs nothing. MEASURED on
+        # three ordinary ciphertexts of 2,000 to 2,800 symbols it refuses in
+        # 0.00-0.01s, because the two cell alphabets have to be disjoint and
+        # on ordinary text they are not.
+        #
+        # Restarts are NOT taken from the effort ladder. It recovers the key
+        # on the first restart at every length where it recovers it at all, so
+        # twelve restarts at `deep` would be minutes buying nothing, and a
+        # stage that runs long without being able to reach anything new reads
+        # as coverage without being it.
+        Stage("crossed-coordinate digraph", "digraphic", "fast", 6.0,
+              crossed.solve, {"top": top, "restarts": min(scale + 1, 2),
+                              "seed": seed},
+              reads="symbols"),
+        # A Polybius square whose two coordinates are written as two
+        # blocks rather than interleaved. Recognition looks at thirteen
+        # split positions and nothing else -- a true split fractionation has
+        # two halves of equal length by construction -- so it costs
+        # microseconds on anything that is not this cipher.
+        Stage("Polybius (split coordinates)", "fractionating", "fast", 1.5,
+              seriated.solve, {"top": top, "seed": seed}, reads="symbols"),
 
         Stage("keyword substitution", "monoalphabetic", "normal", 2.0,
               keyword_cipher.solve, {"top": top, "seed": seed}),

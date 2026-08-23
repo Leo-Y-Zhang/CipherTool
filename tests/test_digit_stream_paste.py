@@ -72,6 +72,57 @@ class LetterlessPaste(unittest.TestCase):
         )
 
 
+class ThePasteScreenPathToo(unittest.TestCase):
+    """The fix above was in ``auto_solve``. The paste screen does not use it.
+
+    DEFECT, found 2026-08-23. ``handle_paste`` routes a letterless paste to
+    ``cli._solve_symbol_stream``, which called the Polybius square search with
+    the raw text -- and that search returns NOTHING on an odd symbol count.
+    So the odd-count fix above was real, tested, and unreachable from the only
+    screen the operator uses. 2024 challenge 8B, 3,025 digits, was refused
+    with "this is not a letter cipher" and a suggestion to run
+    ``cipher_tool polybius``, which would have refused it identically.
+
+    The test drives the CLI helper, not ``auto_solve``, because that is the
+    distinction the defect turned on: the library call passed while the user
+    journey failed.
+    """
+
+    def _args(self):
+        import argparse
+        return argparse.Namespace(top=3, seed=1, max_time=None)
+
+    def test_the_paste_path_solves_an_odd_digit_count(self) -> None:
+        from cipher_tool import cli
+
+        found = cli._solve_symbol_stream(as_digits(PLAIN) + "3", self._args())
+        self.assertIsNotNone(
+            found, "the paste screen refused an odd digit count outright")
+        best = found.candidates.best()
+        self.assertIsNotNone(best)
+        self.assertIn("MYINVESTIGATIONS", best.plaintext)
+
+    def test_the_paste_path_still_solves_an_even_digit_count(self) -> None:
+        from cipher_tool import cli
+
+        found = cli._solve_symbol_stream(as_digits(PLAIN), self._args())
+        self.assertIsNotNone(found)
+        self.assertIn("MYINVESTIGATIONS", found.candidates.best().plaintext)
+
+    def test_only_the_last_symbol_is_ever_dropped(self) -> None:
+        """A leading drop misaligns every pair after it.
+
+        Pinned as its own test because the two mistakes look equally harmless
+        and only one of them destroys the message.
+        """
+        from cipher_tool import cli
+
+        found = cli._solve_symbol_stream("3" + as_digits(PLAIN), self._args())
+        if found is not None:
+            best = found.candidates.best()
+            self.assertNotIn("MYINVESTIGATIONS", best.plaintext)
+
+
 class StillRefused(unittest.TestCase):
     """The early exit must survive for the cases it was written for."""
 
