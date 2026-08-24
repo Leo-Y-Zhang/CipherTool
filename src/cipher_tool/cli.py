@@ -1619,6 +1619,25 @@ def _render_letters_only_reading(
     return "\n".join(lines)
 
 
+#: Mark-alphabet sizes the toolkit can actually reach once the marks are
+#: transcribed to digits, and the cipher each one is the shape of. Anything
+#: not in here gets told so plainly: a refusal that names a command which will
+#: refuse for the same reason is worse than one that admits the gap.
+_MARK_FAMILIES: dict[int, str] = {
+    5: "a Polybius square",
+    6: "ADFGVX",
+}
+
+#: Above this many distinct marks, the message is not a fractionation. Every
+#: classical scheme that writes a letter as a GROUP of marks uses a tiny
+#: alphabet -- two for binary, three for 2024 9B, five for a Polybius square,
+#: six for ADFGVX -- because the group length grows as the alphabet shrinks.
+#: Twenty-six distinct symbols is the opposite construction, one mark per
+#: letter, and telling that reader to look for groups sends them hunting for
+#: something that is not there.
+_FRACTIONATION_ALPHABET_MAX = 10
+
+
 def _render_letterless(raw: str) -> str:
     """What to say when something WAS pasted but none of it is letters.
 
@@ -1627,12 +1646,67 @@ def _render_letterless(raw: str) -> str:
     end -- it is the one reply that guarantees they try the identical thing
     again. A numeric ciphertext is a cipher; this screen simply is not where
     it gets solved, and the toolkit does have solvers for that shape.
+
+    The mark case was added after 2024 challenge 9B, which is neither letters
+    nor digits: 12,935 characters of ``|``, ``/`` and ``\\``. "None are
+    letters (0 are digits)" is perfectly true of it and says nothing, so the
+    notation gets named instead -- how many distinct marks, and which ones.
     """
     body = "".join(raw.split())
     digits = sum(character.isdigit() for character in body)
     lines = ["", "=" * 72, "THIS IS NOT A LETTER CIPHER", "=" * 72, ""]
+    # Whether the numeric-square command is worth naming at the end. It is for
+    # every case this screen handled before; it is not for a mark alphabet
+    # that the paragraph above has just said nothing here can read.
+    numeric_square_helps = True
 
-    if digits == len(body):
+    if body and not digits:
+        distinct = sorted(set(body))
+        lines.append(
+            f"  All {len(body)} characters are marks -- not letters, not "
+            f"digits -- written in {len(distinct)} distinct symbols: "
+            + " ".join(distinct)
+            + "."
+        )
+        lines.append("")
+        opening = (
+            "  An alphabet that small is a fractionation: each plaintext "
+            "letter is written as a group of marks rather than as one "
+            "character. "
+        )
+        family = _MARK_FAMILIES.get(len(distinct))
+        if family is not None:
+            lines.append(
+                opening
+                + f"{len(distinct)} marks is the shape of {family}, which the "
+                "toolkit does solve. Replace each mark with a digit, keeping "
+                "the order, and pass that to:"
+            )
+        elif len(distinct) <= _FRACTIONATION_ALPHABET_MAX:
+            # Reached only after every symbol solver has already declined, so
+            # naming the commands as though they were untried is homework
+            # with a known ending. 2024 challenge 9B is this case.
+            numeric_square_helps = False
+            lines.append(
+                opening
+                + "Beyond that, no solver in this toolkit reads a "
+                f"fractionation of {len(distinct)} marks directly -- a gap in "
+                "the toolkit, not a fault in your paste. If these groups are "
+                "a known notation rather than a cipher, this will name it:"
+            )
+        else:
+            # The opposite shape, and calling it a fractionation would send
+            # the reader hunting for groups that are not there.
+            numeric_square_helps = False
+            lines.append(
+                f"  {len(distinct)} distinct symbols is far too many to spell "
+                "letters out in groups, so each mark most likely stands for "
+                "one letter. Replace each distinct mark with a distinct "
+                "LETTER, keeping the order, and paste that back in here -- a "
+                "substitution is what the ordinary pipeline is best at. If it "
+                "is a notation rather than a cipher, this names it:"
+            )
+    elif digits == len(body):
         lines.append(
             f"  All {len(body)} characters are digits, so a letter-based "
             "attack has nothing to hold on to."
@@ -1656,11 +1730,15 @@ def _render_letterless(raw: str) -> str:
 
     lines.append("")
     lines.append(f"      {PROGRAM} encodings <file>    identify what it is")
-    lines.append(f"      {PROGRAM} polybius  <file>    solve a numeric square")
+    if numeric_square_helps:
+        lines.append(
+            f"      {PROGRAM} polybius  <file>    solve a numeric square"
+        )
     lines.append("")
     lines.append(
-        "  Save the message to a file and pass it to one of those. Nothing "
-        "was wrong with what you pasted."
+        "  Save the message to a file and pass it to "
+        + ("one of those" if numeric_square_helps else "that")
+        + ". Nothing was wrong with what you pasted."
     )
     return "\n".join(lines)
 

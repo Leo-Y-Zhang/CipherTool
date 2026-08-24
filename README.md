@@ -181,7 +181,7 @@ cipher_tool analyse message.txt
 python run_tests.py
 ```
 
-You should see about 1,485 tests pass, plus roughly 3,000 subtests.
+You should see 1,505 tests pass, plus roughly 3,000 subtests.
 Budget half an hour on a laptop: measured at 33 minutes 19 seconds on a
 machine that was busy with something else at the time, and 27 minutes 34
 seconds earlier the same evening. Nearly all of it is the randomised
@@ -189,6 +189,12 @@ climbs, which are slow on purpose -- an earlier version of this line said
 two minutes and had been wrong for several releases, and the line after
 that said 15 minutes 42 seconds and went stale the same way. Re-measure
 it rather than trusting it.
+
+The count above was taken from the loader rather than from a run
+(`defaultTestLoader.discover(...).countTestCases()`), and the timings are
+the older ones: the machine was running a sixteen-worker job at the time
+and any figure measured against that would have been a description of the
+load, not of the suite.
 
 ---
 
