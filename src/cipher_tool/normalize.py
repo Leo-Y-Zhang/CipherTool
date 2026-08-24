@@ -25,6 +25,20 @@ leftovers as though they were the message. MEASURED on a real paste of 1,251
 alphanumeric symbols, 891 of them letters: the screen said "Read 891 letters",
 solved the wreckage as a monoalphabetic substitution and offered it as an
 answer. Nothing on that screen was false; nothing on it was the truth either.
+
+And a fourth, ``marks``, for the same reason one more time. A-Z and 0-9 are not
+the only notations a message can be written in: 2024 challenge 9B is 12,935
+characters of ``|`` ``/`` and ``\\``, which are none of them letters or digits,
+so the symbol stream was empty and the paste screen announced "Read 0 symbols"
+over a full page of ciphertext. The rule that resolves it is narrow, because
+punctuation in an ordinary paste really is layout and reporting it would be
+noise:
+
+    Marks are layout while a symbol stream exists, and are the message when
+    none does.
+
+An inventory that was never measured is all zeroes, so it has no marks either
+and takes exactly the path it always did.
 """
 
 from __future__ import annotations
@@ -162,7 +176,19 @@ class Inventory:
         does not invite the reader to wonder what a digit was doing there.
         Punctuation and whitespace are not mentioned: they are layout, and the
         count in front of the colon is the symbol stream, not the file.
+
+        Unless there is no symbol stream at all, in which case the marks are
+        not layout -- they are everything that was pasted, and saying "0
+        symbols" over 12,935 of them is the filter describing its own
+        leftovers again. An all-zero inventory has no marks either, so NOT
+        MEASURED still reads "0 symbols" exactly as before.
         """
+        if not self.symbols and self.other:
+            return (
+                f"{self.other} mark{'' if self.other == 1 else 's'}, "
+                "none of them letters or digits"
+            )
+
         parts: list[str] = []
         if self.letters:
             parts.append(f"{self.letters} letter{'' if self.letters == 1 else 's'}")
@@ -203,8 +229,12 @@ class NormalizedText:
         ``symbol_positions[i]`` is the index in ``original`` of ``symbols[i]``.
     inventory:
         What the input contained, by class. All zeroes means NOT MEASURED.
+    marks:
+        The non-whitespace characters that are neither letters nor digits, in
+        order. ``""`` means NOT MEASURED. Layout in an ordinary paste, and the
+        whole message in a mark-notation one -- see the module docstring.
 
-    The last three are appended with defaults on purpose. Every existing
+    The last four are appended with defaults on purpose. Every existing
     construction of this class, positional or keyword, keeps working, and
     every predicate written over the inventory must fail closed onto the
     toolkit's older behaviour when it sees zeroes.
@@ -218,6 +248,7 @@ class NormalizedText:
     symbol_positions: tuple[int, ...] = ()
     #: Frozen and immutable, so one shared default instance is safe here.
     inventory: Inventory = Inventory()
+    marks: str = ""
 
     # -- convenience -------------------------------------------------------
 
@@ -238,6 +269,11 @@ class NormalizedText:
     def has_symbols(self) -> bool:
         """True when the symbol stream was measured and is not empty."""
         return bool(self.symbols)
+
+    @property
+    def has_marks(self) -> bool:
+        """True when the mark stream was measured and is not empty."""
+        return bool(self.marks)
 
     @property
     def digit_fraction(self) -> float:
@@ -306,6 +342,7 @@ def normalize(text: str) -> NormalizedText:
     positions: list[int] = []
     symbols: list[str] = []
     symbol_positions: list[int] = []
+    marks: list[str] = []
     letter_count = digit_count = other_count = space_count = 0
     # Index into `text` (the untouched original). Folding can change string
     # length, so walk the *original* and fold one character at a time to keep
@@ -338,6 +375,10 @@ def normalize(text: str) -> NormalizedText:
             if raw_char.isspace():
                 space_count += 1
             else:
+                # Recorded as written, not folded: the reader needs to see the
+                # character they typed when a screen names the alphabet back
+                # to them.
+                marks.append(raw_char)
                 other_count += 1
 
     groups = tuple(
@@ -359,6 +400,7 @@ def normalize(text: str) -> NormalizedText:
             other=other_count,
             spaces=space_count,
         ),
+        marks="".join(marks),
     )
 
 

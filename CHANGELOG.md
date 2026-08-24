@@ -136,6 +136,46 @@ Add entries here as you work. Suggested headings: `Added`, `Changed`,
 
 ### Fixed
 
+- **A paste made entirely of marks was announced as "Read 0 symbols".**
+  `normalize` keeps A-Z and 0-9 and counts everything else as `other`, and the
+  inventory never mentioned `other` -- correctly, because in an ordinary paste
+  those characters are transcription layout. But 2024 challenge 9B is written
+  in three marks, `|` `/` and `\`, so for that message the marks ARE the
+  message: 12,935 of them, reported as none.
+
+  The rule is deliberately narrow: **marks are layout while a symbol stream
+  exists, and are the message when none does.** An inventory that was never
+  measured is all zeroes, has no marks either, and still reads "0 symbols", so
+  every hand-built `NormalizedText` behaves exactly as before.
+
+  **The sharpest version of it: the toolkit was already SOLVING some of these
+  pastes while describing them as nothing.** Morse is dots and dashes, also a
+  pure mark stream, and `encodings.solve` reads the original text rather than
+  the letters view -- so a Morse paste decoded correctly underneath a banner
+  that said "Read 0 symbols". A description can be wrong on an input the
+  answer is right about.
+
+  The refusal now names the notation instead of saying "none are letters
+  (0 are digits)", which is true of 9B and tells the reader nothing: how many
+  distinct marks, and which. It also stops handing out `cipher_tool polybius`
+  for an alphabet it has just said nothing here can read -- that screen is
+  reached only after every symbol solver has already declined, so naming them
+  again is homework with a known ending.
+
+  **No mark solver was added, on purpose.** 9B is ternary, nothing in the
+  toolkit reads a ternary fractionation, and a stage that runs without being
+  able to reach the answer reads as coverage. Five and six marks are the one
+  case where transcribing to digits genuinely reaches a solver (a Polybius
+  square, ADFGVX) and the screen says so; above ten distinct marks it is the
+  opposite construction -- one mark per letter -- and calling that a
+  fractionation would send the reader hunting for groups that are not there.
+
+  Fifth variant of one bug. The four before it: a numeric ciphertext read as
+  an empty paste; "no letters" and "nothing pasted" printed identically; a
+  message of letters AND digits described by the count of what survived the
+  filter; and a symbol stream refused because the guard keyed on digits rather
+  than on the pairing.
+
 - **The paste screen refused an odd-length digit stream, and then told the
   reader to run a command that would refuse it too.** The Polybius square
   search reads its input as coordinate PAIRS and returns nothing at all on an
