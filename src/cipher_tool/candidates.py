@@ -16,7 +16,10 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Iterator, Sequence
+from typing import TYPE_CHECKING, Any, Iterable, Iterator, Sequence
+
+if TYPE_CHECKING:  # imported lazily at runtime -- readable builds a model
+    from .readable import Reading
 
 # ---------------------------------------------------------------------------
 # Confidence thresholds.
@@ -442,6 +445,13 @@ _UNCERTAINTY_NOTE = (
     "Read the plaintext before trusting any of them."
 )
 
+_READING_NOTE = (
+    "A 'Reading' line is the same letters with spacing and capitals put back "
+    "by the lexicon, to read against -- not part of the decryption. Names it "
+    "does not know are split wrongly and stay lower case. Submit the "
+    "Plaintext, never the Reading."
+)
+
 
 def render_candidate(
     candidate: Candidate,
@@ -482,7 +492,43 @@ def render_candidate(
             lines.append(f"    {line}")
     else:
         lines.append(f"  Plaintext:   {candidate.preview(width)}")
+
+    # The line above is the decryption. This one is the same letters made
+    # readable -- printed second, and only when the split is worth trusting,
+    # so nobody mistakes the toolkit's spacing for part of the answer.
+    reading = _reading_of(candidate)
+    if reading is not None:
+        if full_text:
+            lines.append("  Reading:")
+            for line in reading.wrapped(width):
+                lines.append(f"    {line}")
+        else:
+            lines.append(f"  Reading:     {_ellipsise(reading.text, width)}")
     return "\n".join(lines)
+
+
+def _reading_of(candidate: Candidate) -> Reading | None:
+    """The candidate's plaintext spaced and cased, or None if not worth it.
+
+    Returns nothing rather than a bad reading. Below the lexicon threshold a
+    split invents word breaks that are not there, and a plaintext of digits or
+    symbols has no words to find at all -- in both cases the letters above are
+    the honest thing to show and a "reading" would only mislead.
+    """
+    from .readable import read_plaintext  # lazy: builds a language model
+
+    if not candidate.plaintext:
+        return None
+    reading = read_plaintext(candidate.plaintext)
+    return reading if reading.trustworthy else None
+
+
+def _ellipsise(text: str, width: int) -> str:
+    """First *width* characters, ellipsised, matching Candidate.preview."""
+    text = " ".join(text.split())
+    if len(text) <= width:
+        return text
+    return text[: width - 3] + "..."
 
 
 def render_candidates(
@@ -503,13 +549,20 @@ def render_candidates(
         blocks.append("No candidates were produced.")
         return "\n".join(blocks)
 
+    showed_a_reading = False
     for position, candidate in enumerate(chosen, start=1):
-        blocks.append(render_candidate(
+        block = render_candidate(
             candidate, position, full_text=full_text, width=width
-        ))
+        )
+        showed_a_reading = showed_a_reading or "\n  Reading:" in block
+        blocks.append(block)
         blocks.append("")
 
     blocks.append(f"NOTE: {_UNCERTAINTY_NOTE}")
+    if showed_a_reading:
+        # Said once, at the bottom, rather than beside every candidate: a
+        # caveat repeated five times is a caveat nobody reads.
+        blocks.append(f"NOTE: {_READING_NOTE}")
     return "\n".join(blocks)
 
 

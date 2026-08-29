@@ -61,6 +61,7 @@ from . import (
     vigenere,
 )
 from .candidates import Candidate, CandidateSet, render_candidates
+from .readable import SEGMENTATION_THRESHOLD, read_plaintext
 from .normalize import (
     ALPHABET_SIZE,
     group_text,
@@ -1322,12 +1323,6 @@ def _looks_like_a_pasted_message(line: str) -> bool:
     return len(letters_only(line)) >= MENU_MESSAGE_LETTERS
 
 
-#: How much of a plaintext must fall inside recognised words before the
-#: spaced version is worth showing. Below this the split invents word breaks
-#: that are not there, which makes a correct decryption look wrong.
-SEGMENTATION_THRESHOLD = 0.85
-
-
 def _segmentation_is_trustworthy(plaintext: str, scorer: Any) -> bool:
     """True when putting the spaces back is likely to help rather than hurt.
 
@@ -1335,13 +1330,14 @@ def _segmentation_is_trustworthy(plaintext: str, scorer: Any) -> bool:
     actually holds. A plaintext full of vocabulary we do not have gets
     chopped in the wrong places, and a wrong split misleads more than an
     unbroken run of letters does -- the reader blames the decryption.
+
+    Kept as a named function because it reads better at the call sites and
+    because it takes a scorer the caller has already built. The measurement
+    itself lives in :class:`~cipher_tool.readable.Reading` -- one definition,
+    so the screen gate and the reading can never drift apart and start
+    disagreeing about the same plaintext.
     """
-    pieces = scorer.segment(plaintext)
-    if not pieces:
-        return False
-    total = sum(len(piece) for piece in pieces)
-    known = sum(len(piece) for piece in pieces if piece in scorer.lexicon)
-    return total > 0 and known / total >= SEGMENTATION_THRESHOLD
+    return read_plaintext(plaintext, scorer=scorer).trustworthy
 
 
 def _segmentation_is_submission_safe(plaintext: str, scorer: Any) -> bool:
@@ -1366,10 +1362,7 @@ def _segmentation_is_submission_safe(plaintext: str, scorer: Any) -> bool:
     are this toolkit's opinion, and an opinion is not something to paste into
     an answer box.
     """
-    pieces = scorer.segment(plaintext)
-    if not pieces:
-        return False
-    return all(piece in scorer.lexicon for piece in pieces)
+    return read_plaintext(plaintext, scorer=scorer).submission_safe
 
 
 def _wrap_words(text: str, width: int) -> list[str]:
@@ -1403,7 +1396,12 @@ def render_submission(result: "auto_module.AutoResult") -> str:
         return ""
     scorer = default_scorer()
     if _segmentation_is_submission_safe(best.plaintext, scorer):
-        return scorer.segmented(best.plaintext) + "\n\n" + best.plaintext
+        # Every word is one the lexicon holds, so the reading is as safe as
+        # the split behind it -- and a person copying a sentence would rather
+        # copy "Attack at dawn" than ATTACK AT DAWN. The bare letters still
+        # follow it, because that is what the decryption produced.
+        reading = read_plaintext(best.plaintext, scorer=scorer)
+        return reading.text + "\n\n" + best.plaintext
     # Any doubt at all and only the letters go in, because those are what the
     # decryption produced while the spaces are a guess made afterwards. One
     # wrong space is a rejected answer, and nobody proof-reads a paste.
@@ -1853,23 +1851,29 @@ def _render_answer(
         body = body[:WEAK_PREVIEW_LETTERS]
         truncated = True
 
-    # Only offer the spaced version when the split is trustworthy. Restoring
+    # Only offer the readable version when the split is trustworthy. Restoring
     # spaces needs the words to be in our lexicon, and where they are not the
     # result is worse than no spaces at all: a sentence whose vocabulary we
     # lack segments as "AT AL TOCH AR ACTER", which reads like a failed
     # decryption of a perfect one. Showing that above the real answer would
     # undo the work.
-    if _segmentation_is_trustworthy(body, scorer):
+    #
+    # The case is put back at the same time, and only where English guarantees
+    # a capital -- the opening letter and the pronoun I. Names stay lower case
+    # on purpose; readable.py records the measurements that ruled out guessing
+    # them, and the short version is 1,197 wrong capitals for 172 right ones.
+    reading = read_plaintext(body, scorer=scorer)
+    if reading.trustworthy:
         lines.append(
-            "Spacing GUESSED by the lexicon, to read and check against -- "
-            "names and words"
+            "Spacing and capitals GUESSED by the lexicon, to read and check "
+            "against -- names"
         )
         lines.append(
-            "it does not know will be split wrongly. SUBMIT THE LETTERS "
-            "BELOW, not this:"
+            "it does not know are split wrongly and stay lower case. SUBMIT "
+            "THE LETTERS BELOW, not this:"
         )
         lines.append("")
-        lines.extend(_wrap_words(scorer.segmented(body), width))
+        lines.extend(reading.wrapped(width))
         lines.append("")
         lines.append(
             "THE ANSWER, exactly as decrypted -- every letter, no guesswork:"

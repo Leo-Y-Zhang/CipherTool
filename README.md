@@ -524,11 +524,22 @@ Candidate 1
     - mean_column_ic: 0.0684
     - word_coverage: 0.8900
     - words_seen: THROUGH, MESSAGE, HARBOUR
-  Plaintext:   THEREISNOTHINGSOFATALTOCHARACTER...
+  Plaintext:   THERE ISNOT HINGS OFATA LTOCH ARACT ER...
+  Reading:     There is nothing so fatal to character...
 ```
 
 **Things to know about that output:**
 
+- `Plaintext` is the decryption: every letter the attack produced, in the
+  ciphertext's own five-letter grouping. **This is the line you submit.**
+- `Reading` is the same letters with the spacing and the capitals put back, so
+  a person can read them. It is the toolkit's opinion, not part of the
+  decryption, and it only appears when the split is worth trusting. Names the
+  lexicon does not know get split wrongly and stay lower case -- deliberately,
+  because guessing which words are names was measured and produced **1,197
+  wrong capitals for 172 right ones**. Sentence boundaries are not guessed at
+  all: with no punctuation to go on, the best model tried scored 0.06-0.21
+  precision at 0.02-0.09 recall. `readable.py` records both experiments.
 - `Confidence` is a heuristic derived from measurements, never a verdict. The
   strongest label is `strong`. There is deliberately no `solved`.
 - `Score` is a log probability. Compare it only between candidates over the

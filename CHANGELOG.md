@@ -14,6 +14,46 @@ Add entries here as you work. Suggested headings: `Added`, `Changed`,
 
 ### Added
 
+- **`readable.py` -- every solved plaintext now prints a second time, spaced
+  into words and in sentence case.** A decryption came back as
+  `TIMBE RANDB RUSHW OODSO MEFOU RHUND` and stayed that way through every
+  report, so a perfect answer looked like a failed one and had to be read a
+  letter at a time. Candidates now carry a `Reading` line beneath the
+  `Plaintext` line: *Timber and brushwood some four hundred yards downstream*.
+  It is added, never substituted -- the five-letter groups are what the attack
+  produced and remain the thing to submit -- and it is printed second, and
+  only when the split clears the lexicon threshold, so nobody mistakes the
+  toolkit's spacing for part of the answer.
+
+  **Two more ambitious versions were built first and thrown away on the
+  numbers, which is the part worth keeping.** Held out one corpus file at a
+  time and measured against real prose:
+
+  | Rule tried | Precision | Recall | Verdict |
+  |---|---|---|---|
+  | Capitalise names from a learned list | 0.92 | 0.14 | Can only capitalise names it has already met, and a real message's names are new ones |
+  | Capitalise any word the lexicon cannot explain | 0.13 | 0.67 | **1,197 wrong capitals for 172 right** -- `Mare`, `Enclosed`, `Berth`, `Grateful` |
+  | Find sentence boundaries by naive Bayes | 0.06-0.21 | 0.02-0.09 | Scatters capitals mid-sentence and misses nineteen breaks in twenty |
+
+  So the only capitals restored are the two English guarantees: the opening
+  letter, and the standalone pronoun `I` (146 of 146 correct on held-out
+  text). Names come out lower case on purpose. A lower-case `mira salt` reads
+  as the tool declining to guess; a capitalised `Mare` in mid-sentence reads
+  as a broken decryption, and refusing is the cheaper error.
+
+  The invariant that makes it safe to show at all: a reading adds spaces and
+  changes case and does nothing else, so stripping the spaces and
+  upper-casing what is left returns the plaintext letter for letter. That is
+  pinned on ordinary English, on text the lexicon cannot explain, and on the
+  mixture. The rendering itself is mutation-tested three ways -- suppress the
+  line, show it when untrusted, or let it replace the plaintext -- and each
+  mutation fails a test.
+
+  `SEGMENTATION_THRESHOLD` moved here from `cli.py` so there is one definition
+  of it rather than two, and the copy-ready submission block now offers the
+  cased reading above the bare letters when every word is one the lexicon
+  holds.
+
 - **`crossed.py` -- a digraph cipher whose two letters have their coordinates
   crossed.** `paired.py` could already recognise a message written as a
   52-card deck, name its two disjoint sub-decks and say the unit is two cells,
