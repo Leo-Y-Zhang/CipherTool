@@ -3,7 +3,7 @@
 [![tests](https://github.com/Leo-Y-Zhang/CipherTool/actions/workflows/ci.yml/badge.svg)](https://github.com/Leo-Y-Zhang/CipherTool/actions/workflows/ci.yml)
 [![python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/downloads/)
 [![dependencies](https://img.shields.io/badge/dependencies-none-brightgreen)](pyproject.toml)
-[![licence](https://img.shields.io/badge/licence-MIT-lightgrey)](LICENSE)
+[![licence](https://img.shields.io/badge/licence-proprietary%20source--available-lightgrey)](LICENSE)
 
 An offline classical cryptanalysis toolkit, written from scratch in pure
 Python for a school team entering the National Cipher Challenge.
@@ -733,7 +733,7 @@ CipherTool/
     RULES_COMPLIANCE.md       the competition audit, and what to re-check
     ALGORITHMS.md             the mathematics
     CHANGELOG.md              our development record
-    LICENSE                   MIT
+    LICENSE                   proprietary source-available
     pyproject.toml            no runtime dependencies, deliberately
     run_tests.py              stdlib-only test runner
     .github/workflows/ci.yml  tests on Windows, Mac and Linux on every push
