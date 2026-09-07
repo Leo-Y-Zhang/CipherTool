@@ -8,7 +8,7 @@ version = "1.0.0"
 description = "Offline classical cryptanalysis toolkit, written from scratch for the National Cipher Challenge."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = { file = "LICENSE" }
 
 # ---------------------------------------------------------------------------
 # DEPENDENCIES: intentionally empty.
