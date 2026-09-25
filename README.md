@@ -181,7 +181,7 @@ cipher_tool analyse message.txt
 python run_tests.py
 ```
 
-You should see 1,554 tests pass, plus roughly 3,000 subtests.
+You should see 1,556 tests pass, plus roughly 3,000 subtests.
 Budget half an hour on a laptop: measured at 33 minutes 19 seconds on a
 machine that was busy with something else at the time, and 27 minutes 34
 seconds earlier the same evening. Nearly all of it is the randomised

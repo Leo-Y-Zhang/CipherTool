@@ -40,7 +40,7 @@ lint step. The closest thing to a static check is the compliance suite below.
 
 ## Test
 
-Full suite is 1,554 tests (~3,000 subtests) and is genuinely slow — the
+Full suite is 1,556 tests (~3,000 subtests) and is genuinely slow — the
 README's own budget is ~30 minutes ("nearly all of it is the randomised
 climbs, which are slow on purpose"); this container observed 588 of the
 then 1,505 pass with zero failures before a 600s timeout cut it off. Do not
