@@ -153,6 +153,21 @@ class TestSolve(unittest.TestCase):
         self.assertEqual(best.plaintext, PLAIN)
         self.assertIn(f"key={KEY}", best.key)
 
+    def test_a_normalised_input_is_read_like_the_raw_text(self) -> None:
+        """Every other solver takes a NormalizedText; so must this one.
+
+        It looked for a ``.text`` attribute that NormalizedText does not
+        have, found nothing, and declined a message it reads perfectly well
+        from the string -- a refusal nothing on the screen could explain.
+        """
+        from cipher_tool.normalize import normalize
+
+        values = nihilist.encrypt(PLAIN, SQUARE, KEY)
+        raw = " ".join(str(v) for v in values)
+        best = nihilist.solve(normalize(raw), seed=1).best()
+        self.assertIsNotNone(best, "a NormalizedText input was declined")
+        self.assertEqual(best.plaintext, PLAIN)
+
     def test_the_whole_square_is_reported_when_every_cell_is_used(self) -> None:
         values = nihilist.encrypt(PLAIN, SQUARE, KEY)
         best = nihilist.solve(" ".join(str(v) for v in values), seed=1).best()

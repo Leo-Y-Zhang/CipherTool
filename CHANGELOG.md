@@ -176,6 +176,17 @@ Add entries here as you work. Suggested headings: `Added`, `Changed`,
 
 ### Fixed
 
+- **`cipher_tool auto` refused a Nihilist message with "nothing was
+  attempted".** The letterless branch of `auto_solve` names Nihilist beside
+  Polybius as an all-digit family, but only ever tried Polybius, which needs
+  six or fewer distinct digits; Nihilist sums run to 110 and use all ten. The
+  paste screen read the same file at `strong`, so the capability was there and
+  one command could not reach it. The branch now hands a stream of 40 or more
+  numbers to `nihilist.solve`, and says so in the stage table whether or not
+  it decodes. Underneath that, `nihilist.solve` declined every
+  `NormalizedText` outright: it looked for a `.text` attribute that class does
+  not have, where the paste lives in `.original`.
+
 - **A setting a solver refuses is now an error line from every command, not a
   traceback.** `vigenere --key 123`, `substitution --restarts 0`,
   `polybius --square HELLO`, `hill --size 1` and a dozen more each ended in a
