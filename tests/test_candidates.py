@@ -75,6 +75,47 @@ class TestConfidence(unittest.TestCase):
         candidate = make(normalised_score=-0.5, word_coverage=1.0)
         self.assertNotIn("solved", candidate.confidence().lower())
 
+    def test_promising_needs_some_coverage_too(self) -> None:
+        # Letter statistics in the promising band with almost no real words
+        # is the shape of a near-miss key, not of a lead worth reading.
+        candidate = make(plaintext=SPREAD, normalised_score=-1.5,
+                         word_coverage=0.10)
+        self.assertEqual(candidate.confidence(), "weak")
+
+    def test_missing_coverage_below_the_promising_band_is_weak(self) -> None:
+        # The n-gram-only fallback caps at promising; it must not hand
+        # promising to a score that would be weak with coverage measured.
+        candidate = make(plaintext=SPREAD, normalised_score=-2.0)
+        self.assertEqual(candidate.confidence(), "weak")
+
+    def test_a_confidence_cap_only_ever_weakens(self) -> None:
+        capped = make(plaintext=SPREAD, normalised_score=-0.9,
+                      word_coverage=0.85, confidence_cap="promising")
+        self.assertEqual(capped.confidence(), "promising")
+        already_weaker = make(plaintext=SPREAD, normalised_score=-2.0,
+                              word_coverage=0.20, confidence_cap="promising")
+        self.assertEqual(already_weaker.confidence(), "weak")
+
+
+class TestIdentityGuard(unittest.TestCase):
+    """What counts as a decryption that handed the input straight back."""
+
+    SOURCE = "THEQUICKBROWNFOXJUMPSOVERTHELAZYDOG"
+
+    def test_the_input_unchanged_is_an_identity(self) -> None:
+        found = CandidateSet(source_letters=self.SOURCE)
+        self.assertTrue(found.is_identity(make(plaintext=self.SOURCE)))
+
+    def test_one_letter_changed_at_the_end_is_a_decryption(self) -> None:
+        # A prefix comparison that stops one letter short would miss this.
+        changed = self.SOURCE[:-1] + "X"
+        found = CandidateSet(source_letters=self.SOURCE)
+        self.assertFalse(found.is_identity(make(plaintext=changed)))
+
+    def test_a_short_matching_prefix_is_not_the_whole_message(self) -> None:
+        found = CandidateSet(source_letters=self.SOURCE * 3)
+        self.assertFalse(found.is_identity(make(plaintext=self.SOURCE[:10])))
+
 
 class TestCandidateSet(unittest.TestCase):
     def test_ranked_best_first(self) -> None:
@@ -232,6 +273,13 @@ class TestDegenerateReadingsAreNotSold(unittest.TestCase):
         candidate = make(plaintext="THE" * 209, score=-2.5 * 627,
                          normalised_score=-2.5, word_coverage=0.30,
                          english_fraction=1.0)
+        self.assertIn(candidate.confidence(), {"weak", "unlikely"})
+
+    def test_a_collapse_is_caught_from_forty_letters(self) -> None:
+        # The share test is calibrated from 40 letters up, not only on long
+        # readings: a 51-letter collapse is just as much not an answer.
+        candidate = make(plaintext="AND" * 17, score=-0.637 * 51,
+                         normalised_score=-0.637, word_coverage=1.0)
         self.assertIn(candidate.confidence(), {"weak", "unlikely"})
 
     def test_a_short_real_plaintext_is_never_rejected(self) -> None:
