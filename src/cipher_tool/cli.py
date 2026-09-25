@@ -142,7 +142,13 @@ def emit(text: str, args: argparse.Namespace) -> None:
     """Print to the terminal, or write to ``--output`` if one was given."""
     output = getattr(args, "output", None)
     if output:
-        Path(output).write_text(text + "\n", encoding="utf-8")
+        try:
+            Path(output).write_text(text + "\n", encoding="utf-8")
+        except OSError as error:
+            # A missing folder or a read-only disk is something the user can
+            # fix, so it is reported like an unreadable input file rather
+            # than as a traceback from inside pathlib.
+            raise InputError(f"Could not write {output}: {error}") from error
         print(f"Written to {output}")
     else:
         print(text)
@@ -2742,6 +2748,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         return args.handler(args) or 0
     except InputError as error:
         print(f"error: {error}", file=sys.stderr)
+        return 2
+    except ValueError as error:
+        # The solvers check their own settings and say what is wrong in a
+        # sentence the user can act on: a key with no letters, a key length
+        # of zero, a keyword the square cannot hold. Some commands turned
+        # that into an InputError and some did not, so the same mistake was
+        # a one-line error in `beaufort`, a traceback in `vigenere`, and a
+        # one-line error again in the shell. Caught once, here, it reads the
+        # same from every command.
+        print(f"error: {_error_message(error)}", file=sys.stderr)
         return 2
     except KeyboardInterrupt:
         print("\ninterrupted", file=sys.stderr)

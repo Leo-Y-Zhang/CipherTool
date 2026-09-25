@@ -176,6 +176,16 @@ Add entries here as you work. Suggested headings: `Added`, `Changed`,
 
 ### Fixed
 
+- **A setting a solver refuses is now an error line from every command, not a
+  traceback.** `vigenere --key 123`, `substitution --restarts 0`,
+  `polybius --square HELLO`, `hill --size 1` and a dozen more each ended in a
+  Python traceback from the terminal, while `beaufort --key 123` gave a
+  one-line error and the shell gave one for all of them. The solvers already
+  explain the problem in words; `main` now prints that message with exit code
+  2, the same as any other input error. An `--output` path in a folder that
+  does not exist, and a context file that is not valid JSON, are reported the
+  same way.
+
 - **A paste made entirely of marks was announced as "Read 0 symbols".**
   `normalize` keeps A-Z and 0-9 and counts everything else as `other`, and the
   inventory never mentioned `other` -- correctly, because in an ordinary paste
