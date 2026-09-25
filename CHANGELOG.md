@@ -186,6 +186,14 @@ Add entries here as you work. Suggested headings: `Added`, `Changed`,
   does not exist, and a context file that is not valid JSON, are reported the
   same way.
 
+- **`analyse` recommended two flags that do not exist.** The small-alphabet
+  and digit findings suggested `polybius <file> --decode` and the grid finding
+  `transposition <file> --deep`, so following the report's own advice ended in
+  a usage error. They now suggest commands the parser accepts, pinned by a
+  test that parses every suggestion. `transposition --routes` also no longer
+  demands a ciphertext it does not use, which is how ALGORITHMS.md already
+  told people to run it.
+
 - **A paste made entirely of marks was announced as "Read 0 symbols".**
   `normalize` keeps A-Z and 0-9 and counts everything else as `other`, and the
   inventory never mentioned `other` -- correctly, because in an ordinary paste

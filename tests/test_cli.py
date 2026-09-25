@@ -306,6 +306,13 @@ class TestEveryCommandRuns(unittest.TestCase):
         self.assertIn("Network use", output)
         self.assertIn("none", output)
 
+    def test_the_route_table_needs_no_ciphertext(self) -> None:
+        # ALGORITHMS.md documents exactly this line. The table is the same
+        # whatever the message, so demanding one was an error with no cause.
+        code, output = run("transposition", "--routes", "--quiet")
+        self.assertEqual(code, 0, output)
+        self.assertIn("boustrophedon", output.lower())
+
     def test_version(self) -> None:
         with self.assertRaises(SystemExit):
             run("--version")
