@@ -205,6 +205,13 @@ Add entries here as you work. Suggested headings: `Added`, `Changed`,
   demands a ciphertext it does not use, which is how ALGORITHMS.md already
   told people to run it.
 
+- **A context file edited by hand could be shredded on load.** Each field is
+  a list of strings, and a field written as one string -- `"people": "Admiral
+  Harrow"` -- was passed through `list()`, which made fourteen one-letter
+  entries; the next `context --add` saved them back over the notes. A bare
+  number such as a year loaded and then crashed the first time cribs were
+  derived from it. Both are now refused on load with the field named.
+
 - **A paste made entirely of marks was announced as "Read 0 symbols".**
   `normalize` keeps A-Z and 0-9 and counts everything else as `other`, and the
   inventory never mentioned `other` -- correctly, because in an ordinary paste
