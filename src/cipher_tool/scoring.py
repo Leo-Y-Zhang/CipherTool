@@ -11,7 +11,7 @@ Where the model comes from
 ``data/corpus_*.txt`` holds roughly twenty-four thousand words of ordinary
 English prose written for this project (narrative, dialogue, correspondence,
 expository writing, history and everyday journalism). At first use we reduce
-that prose to a stream of about one hundred and twenty thousand A-Z letters
+that prose to a stream of about one hundred and two thousand A-Z letters
 and count how often each letter, pair, triple and quadruple occurs.
 
 The model

@@ -20,7 +20,7 @@ What it does NOT do
 Storage
 -------
 Notes live in a JSON file beside the ciphertext: ``message.txt`` gets
-``message.context.json``. Plain JSON so it can be read, edited by hand,
+``message.txt.context.json``. Plain JSON so it can be read, edited by hand,
 diffed and committed alongside the ciphertext.
 """
 
