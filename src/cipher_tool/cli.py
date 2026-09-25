@@ -755,12 +755,15 @@ def command_columnar(args: argparse.Namespace) -> int:
 
 def command_transposition(args: argparse.Namespace) -> int:
     """Every transposition family: rail fence, columnar, permutation, route."""
-    text, _ = read_source(args)
-    normalized = normalize(text)
+    # The route table does not depend on any ciphertext, so asking for it
+    # must not demand one -- ALGORITHMS.md tells people to run exactly
+    # `cipher_tool transposition --routes`.
     if args.routes:
         emit(transposition.describe_routes(), args)
         finish(args)
         return 0
+    text, _ = read_source(args)
+    normalized = normalize(text)
     found = transposition.solve_all(
         normalized, top=args.top, max_key_length=args.max_key_length,
         seed=args.seed, time_budget=args.max_time,

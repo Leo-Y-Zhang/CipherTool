@@ -651,7 +651,10 @@ def cipher_family_hypotheses(stats: TextStatistics) -> list[Hypothesis]:
                 f"Only {stats.unique_letters} distinct symbols are used. That "
                 "is the signature of a cipher that writes each letter as a "
                 "pair of coordinates.",
-                ("cipher_tool polybius <file> --decode",),
+                (
+                    "cipher_tool polybius <file>",
+                    "cipher_tool adfgvx <file>",
+                ),
             )
         )
 
@@ -668,7 +671,7 @@ def cipher_family_hypotheses(stats: TextStatistics) -> list[Hypothesis]:
                 "before any letter-based attack.",
                 (
                     "cipher_tool encodings <file>",
-                    "cipher_tool polybius <file> --decode",
+                    "cipher_tool polybius <file>",
                 ),
             )
         )
@@ -689,7 +692,7 @@ def cipher_family_hypotheses(stats: TextStatistics) -> list[Hypothesis]:
                 )
                 + ". Those are the grids a route or columnar cipher could "
                 "have used.",
-                ("cipher_tool transposition <file> --deep",),
+                ("cipher_tool transposition <file>",),
             )
         )
 

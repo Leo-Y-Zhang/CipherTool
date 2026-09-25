@@ -285,6 +285,49 @@ class TestHypotheses(unittest.TestCase):
                      "12345 67890 12345 67890 12345 67890 12345 67890"):
             self.assertIsInstance(render_report(analyse(text)), str)
 
+    def test_every_suggested_command_is_one_the_cli_accepts(self) -> None:
+        """A suggestion the command line rejects is a dead end, not a lead.
+
+        The small-alphabet and digit branches used to suggest ``polybius
+        --decode`` and the grid branch ``transposition --deep``; neither flag
+        exists, so following the report's advice ended in a usage error.
+        """
+        import shlex
+
+        from cipher_tool.cli import build_parser
+
+        parser = build_parser()
+        texts = (
+            "",
+            sample_english()[::-1],
+            caesar(sample_english(), 7),
+            vigenere(sample_english(1200), "KEYWORD"),
+            "ADFGX" * 12,
+            "HELLO " + "12345 54321 " * 10,
+            "".join(ALPHABET[(i * 7) % 26] for i in range(600)),
+        )
+        seen: set[str] = set()
+        for text in texts:
+            for hypothesis in analyse(text).hypotheses:
+                seen.add(hypothesis.family)
+                for suggestion in hypothesis.suggested_commands:
+                    command = suggestion.split("#")[0]
+                    command = command.replace("<file>", "message.txt")
+                    command = command.replace("<guess>", "KEY")
+                    words = shlex.split(command)
+                    with self.subTest(family=hypothesis.family,
+                                      command=suggestion):
+                        self.assertEqual(words[0], "cipher_tool")
+                        try:
+                            parser.parse_args(words[1:])
+                        except SystemExit:
+                            self.fail(f"the CLI rejects {suggestion!r}")
+        # The branches whose suggestions were wrong must actually be reached,
+        # or this test would pass by never looking at them.
+        for family in ("Fractionating", "Numeric", "Grid/route"):
+            self.assertTrue(any(family in name for name in seen),
+                            f"no text above reached the {family} branch")
+
 
 class TestLowAlphabetBlock(unittest.TestCase):
     """Finding a stretch that was never prose.
