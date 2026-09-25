@@ -474,6 +474,65 @@ class TestNonPositiveLimits(unittest.TestCase):
         self.assertIn("Showing up to 3 candidates", output)
 
 
+class TestBadSettingsAreErrorsNotTracebacks(unittest.TestCase):
+    """A setting the solver refuses is reported the way the shell reports it.
+
+    Every one of these lines used to end in a Python traceback from the
+    terminal, while ``beaufort --key 123`` and the shell's ``vigenere --key
+    123`` gave a one-line error. The solver's own message is the useful part,
+    so it must reach the user, with exit code 2 like any other input error.
+    """
+
+    TEXT = "HEALIOPASDEHANSTHEQUICKBROWNFOXJUMPSOVERTHELAZYDOG"
+
+    CASES = (
+        (("vigenere", "--key", "123"), "contains no letters"),
+        (("vigenere", "--key", "123", "--encrypt"), "contains no letters"),
+        (("vigenere", "--key-length", "0"), "key_length must be at least 1"),
+        (("substitution", "--key", "HELLO"), "not a cipher/plain pair"),
+        (("substitution", "--restarts", "0"), "restarts must be at least 1"),
+        (("keyword", "--words", "123"), "no usable keywords"),
+        (("beaufort", "--max-key-length", "0"), "max_key_length"),
+        (("autokey", "--max-primer", "0"), "max_primer"),
+        (("columnar", "--max-key-length", "1"), "at least 2"),
+        (("transposition", "--max-key-length", "1"), "at least 2"),
+        (("polybius", "--key", "123"), "cannot be placed in this square"),
+        (("polybius", "--square", "HELLO"), "square number of symbols"),
+        (("bifid", "--key", "123"), "cannot be placed in this square"),
+        (("bifid", "--max-period", "0"), "max_period must be at least 1"),
+        (("hill", "--size", "1"), "block size must be at least 2"),
+        (("hill", "--crib", "AB"), "needs at least 2 matched blocks"),
+    )
+
+    def test_each_refusal_is_one_error_line_and_exit_code_two(self) -> None:
+        for argv, message in self.CASES:
+            with self.subTest(command=" ".join(argv)):
+                code, output = run(argv[0], "--text", self.TEXT, *argv[1:],
+                                   "--quiet")
+                self.assertEqual(code, 2, output)
+                self.assertIn("error: ", output)
+                self.assertIn(message, output)
+                self.assertNotIn("ValueError", output)
+
+    def test_a_broken_context_file_is_reported_not_raised(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            cipher = Path(directory) / "message.txt"
+            cipher.write_text(self.TEXT, encoding="utf-8")
+            Path(str(cipher) + ".context.json").write_text(
+                "{not json", encoding="utf-8")
+            code, output = run("context", str(cipher))
+        self.assertEqual(code, 2)
+        self.assertIn("is not valid JSON", output)
+
+    def test_an_output_file_that_cannot_be_written_is_reported(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "no such folder" / "report.txt"
+            code, output = run("caesar", "--text", self.TEXT, "--output",
+                               str(target))
+        self.assertEqual(code, 2)
+        self.assertIn("Could not write", output)
+
+
 class TestShellCribRouting(unittest.TestCase):
     """`crib THE` must test THE, and nothing else.
 
