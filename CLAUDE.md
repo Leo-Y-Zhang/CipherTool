@@ -13,7 +13,7 @@ including two prior incorrect timing claims it caught and fixed in place.
 
 - `src/cipher_tool/` — the package, including `data/*.txt` (the ~24,000-word
   English corpus used to build the runtime Markov model).
-- `tests/` — one `test_<cipher-or-topic>.py` per cipher/feature (41 files),
+- `tests/` — one `test_<cipher-or-topic>.py` per cipher/feature (40 files),
   e.g. `test_caesar.py`, `test_vigenere.py`, `test_hill.py`,
   `test_playfair.py`, `test_compliance.py` (the competition-rules audit).
 - `run_tests.py` — the test runner (stdlib `unittest`, no pytest required).
@@ -40,11 +40,11 @@ lint step. The closest thing to a static check is the compliance suite below.
 
 ## Test
 
-Full suite is 1,505 tests (~3,000 subtests) and is genuinely slow — the
+Full suite is 1,554 tests (~3,000 subtests) and is genuinely slow — the
 README's own budget is ~30 minutes ("nearly all of it is the randomised
-climbs, which are slow on purpose"); this container observed 588/1505 pass
-with zero failures before a 600s timeout cut it off. Do not run the full
-suite in an interactive/time-boxed session:
+climbs, which are slow on purpose"); this container observed 588 of the
+then 1,505 pass with zero failures before a 600s timeout cut it off. Do not
+run the full suite in an interactive/time-boxed session:
 ```
 python run_tests.py            # full suite, budget ~27-33 min
 ```
