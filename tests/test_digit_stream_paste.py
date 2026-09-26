@@ -102,7 +102,7 @@ class NihilistNumbersToo(unittest.TestCase):
         would be the same untrue sentence in a new place.
 
         Every value here ends in 1, which no Nihilist sum can, and the stream
-        uses seven distinct digits, too many for the Polybius branch.
+        uses eight distinct digits, too many for the Polybius branch.
         """
         numbers = ["91", "81", "71", "61", "51", "41", "31"] * 30
         result = auto.auto_solve(" ".join(numbers), effort="fast", top=1,

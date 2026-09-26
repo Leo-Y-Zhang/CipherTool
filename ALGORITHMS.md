@@ -2513,8 +2513,10 @@ So `parse` reads the raw text. The paste screen hands the solver the paste
 itself, and the letterless branch of `auto_solve` hands it the
 `NormalizedText`, whose `.original` keeps the separators. (An earlier
 version of this section said `auto_solve` structurally could not reach the
-family. The real obstacle was `nihilist.solve` looking for a `.text`
-attribute that does not exist, so every `NormalizedText` read as empty.)
+family. The separators were in `.original` all along. What kept it out was
+that nothing in `auto_solve` called `nihilist.solve`, and that
+`nihilist.solve` looked for a `.text` attribute that does not exist, so a
+`NormalizedText` would have read as empty even if something had.)
 
 ## Polybius with split coordinates (`seriated.py`)
 
