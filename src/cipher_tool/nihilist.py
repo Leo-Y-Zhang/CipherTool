@@ -235,7 +235,11 @@ def solve(source, *, scorer=None, top: int = 5, seed: int | None = None,
     from .candidates import Candidate, CandidateSet
     from .scoring import annotate, default_scorer
 
-    raw = source if isinstance(source, str) else getattr(source, "text", "")
+    # A NormalizedText keeps the paste untouched in `.original`, separators
+    # and all, which is exactly what `parse` needs. There is no `.text`; the
+    # attribute this used to ask for silently turned every such input into
+    # an empty string.
+    raw = source if isinstance(source, str) else getattr(source, "original", "")
     empty = CandidateSet()
     values = parse(raw)
     if len(values) < MINIMUM_TOKENS:

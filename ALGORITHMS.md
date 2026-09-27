@@ -2509,9 +2509,14 @@ the key word and the square can both be checked by hand.
 The tokens are whitespace-separated, of variable width, and run past 99.
 Normalising keeps the digits and throws the separators away, which turns
 `"97 26 57"` into `"972657"` -- six single digits instead of three numbers.
-So `parse` reads the raw text, and `auto_solve` structurally cannot reach this
-family, because by the time it sees the message the boundaries are gone. The
-paste screen can, and does.
+So `parse` reads the raw text. The paste screen hands the solver the paste
+itself, and the letterless branch of `auto_solve` hands it the
+`NormalizedText`, whose `.original` keeps the separators. (An earlier
+version of this section said `auto_solve` structurally could not reach the
+family. The separators were in `.original` all along. What kept it out was
+that nothing in `auto_solve` called `nihilist.solve`, and that
+`nihilist.solve` looked for a `.text` attribute that does not exist, so a
+`NormalizedText` would have read as empty even if something had.)
 
 ## Polybius with split coordinates (`seriated.py`)
 

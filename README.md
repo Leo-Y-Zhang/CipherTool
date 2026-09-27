@@ -181,7 +181,7 @@ cipher_tool analyse message.txt
 python run_tests.py
 ```
 
-You should see 1,505 tests pass, plus roughly 3,000 subtests.
+You should see 1,556 tests pass, plus roughly 3,000 subtests.
 Budget half an hour on a laptop: measured at 33 minutes 19 seconds on a
 machine that was busy with something else at the time, and 27 minutes 34
 seconds earlier the same evening. Nearly all of it is the randomised
@@ -353,7 +353,7 @@ Every command takes a file, or `--text "..."`, or `-` for standard input.
 | `columnar FILE [--key WORD] [--max-key-length N] [--complete]` | |
 | `permutation FILE [--key WORD] [--period N]` | one fixed shuffle inside every block |
 | `stacked FILE [--width N] [--period N]` | a polyalphabetic with a transposition laid over it |
-| `transposition FILE [--routes]` | every family at once; `--routes` lists the routes |
+| `transposition FILE [--routes]` | every family at once; `--routes` lists the routes, and needs no file |
 
 ### Digraphic and fractionating
 
@@ -364,6 +364,7 @@ Every command takes a file, or `--text "..."`, or `-` for standard input.
 | `bifid FILE [--key WORD] [--period N]` | period variant supported |
 | `playfair FILE [--key WORD] [--check]` | `--check` validates formatting only |
 | `hill FILE [--matrix 3,3,2,5] [--key HILL] [--crib TEXT]` | 2x2 and 3x3 |
+| `adfgvx FILE [--key WORD --transposition WORD] [--adfgx]` | ADFGVX and ADFGX; both keys given means decrypt |
 
 ### Everything else
 
@@ -374,6 +375,7 @@ Every command takes a file, or `--text "..."`, or `-` for standard input.
 | `context FILE [--add FIELD=VALUE]` | the team's story notes |
 | `auto FILE [--fast\|--normal\|--deep]` | the whole pipeline; `solve` is an alias |
 | `shell [FILE]` | interactive session |
+| `paste` | the paste-and-solve screen the launchers open |
 
 ### Options shared by most commands
 
@@ -393,6 +395,8 @@ Every command takes a file, or `--text "..."`, or `-` for standard input.
 
 **Monoalphabetic** -- Caesar, Atbash, affine, keyword alphabet, general
 substitution.
+**Homophonic substitution** -- more symbols than letters, such as a deck of
+cards; refuses below six ciphertext units per symbol.
 **Polyalphabetic** -- Vigenere, Beaufort, variant Beaufort, plaintext
 autokey, ciphertext autokey.
 **Transposition** -- rail fence (with offset), columnar (simple, complete and
@@ -629,7 +633,7 @@ Stated plainly, because a tool that hides its weaknesses wastes your time.
   enumerated: finding nothing is not proof there is nothing to find. Pinning
   the key lengths with `--first-length` and `--second-length` is what makes
   a hard pair reliable, and a crib or the story usually gives them.
-- **Nulls, homophones, and unusual variants are not implemented.** If the
+- **Nulls and unusual variants are not implemented.** If the
   setter has done something clever, this toolkit will not find it and you
   will have to think.
 
@@ -750,8 +754,12 @@ CipherTool/
         cribs.py              crib placement under each family
         caesar.py atbash.py affine.py keyword_cipher.py substitution.py
         vigenere.py beaufort.py autokey.py
-        rail_fence.py columnar.py transposition.py
+        rail_fence.py columnar.py transposition.py permutation.py
         polybius.py bifid.py playfair.py hill.py homophonic.py
+        adfgvx.py nihilist.py crossed.py seriated.py
+        stacked.py            a polyalphabetic under a transposition
+        unscramble.py         a substitution under a block permutation
+        readable.py           spacing and capitals put back, for reading
         paired.py             recognises a paired-symbol alphabet
         encodings.py
         data/corpus_*.txt     our own English prose, the scoring corpus

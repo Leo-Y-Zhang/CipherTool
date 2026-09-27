@@ -22,7 +22,7 @@ dependencies = []
 [project.optional-dependencies]
 # Test runner only. Not required to run the toolkit, and it contains no
 # cryptanalysis functionality. The test suite also runs under stdlib
-# `unittest`, so even this is optional: see tests/README.md.
+# `unittest`, so even this is optional: see run_tests.py.
 dev = ["pytest>=7"]
 
 [project.scripts]

@@ -72,6 +72,48 @@ class LetterlessPaste(unittest.TestCase):
         )
 
 
+class NihilistNumbersToo(unittest.TestCase):
+    """The other all-digit family named above must be reachable from `auto`.
+
+    The fix above only ever reached Polybius. A Nihilist message is numbers
+    up to 110, so its digit stream uses all ten digits and misses that
+    branch; ``cipher_tool auto`` on one printed "the input contains no
+    letters, so nothing was attempted" -- while the paste screen, handed the
+    same text, read it through ``nihilist.solve``.
+    """
+
+    def test_a_nihilist_number_stream_is_solved_not_refused(self) -> None:
+        from cipher_tool import nihilist
+        from tests.test_nihilist import KEY, SQUARE
+        from tests.test_nihilist import PLAIN as NIHILIST_PLAIN
+
+        values = nihilist.encrypt(NIHILIST_PLAIN, SQUARE, KEY)
+        result = auto.auto_solve(" ".join(str(v) for v in values),
+                                 effort="fast", top=3, seed=1)
+        best = result.candidates.best()
+        self.assertIsNotNone(best, "a Nihilist message was refused outright")
+        assert best is not None
+        self.assertEqual(best.plaintext, NIHILIST_PLAIN)
+        self.assertIn(f"key={KEY}", best.key)
+        self.assertTrue(any(stage.ran for stage in result.stages))
+
+    def test_numbers_that_are_not_nihilist_say_it_was_tried(self) -> None:
+        """Running the stage and then reporting "nothing was attempted"
+        would be the same untrue sentence in a new place.
+
+        Every value here ends in 1, which no Nihilist sum can, and the stream
+        uses eight distinct digits, too many for the Polybius branch.
+        """
+        numbers = ["91", "81", "71", "61", "51", "41", "31"] * 30
+        result = auto.auto_solve(" ".join(numbers), effort="fast", top=1,
+                                 seed=1)
+        self.assertIsNone(result.candidates.best())
+        ran = [stage for stage in result.stages if stage.ran]
+        self.assertTrue(ran)
+        self.assertNotIn("nothing was attempted",
+                         " ".join(stage.note for stage in result.stages))
+
+
 class ThePasteScreenPathToo(unittest.TestCase):
     """The fix above was in ``auto_solve``. The paste screen does not use it.
 

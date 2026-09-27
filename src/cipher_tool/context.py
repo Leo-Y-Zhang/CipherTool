@@ -20,7 +20,7 @@ What it does NOT do
 Storage
 -------
 Notes live in a JSON file beside the ciphertext: ``message.txt`` gets
-``message.context.json``. Plain JSON so it can be read, edited by hand,
+``message.txt.context.json``. Plain JSON so it can be read, edited by hand,
 diffed and committed alongside the ciphertext.
 """
 
@@ -100,6 +100,19 @@ class ContextNotes:
                 f"{target} has unrecognised fields: {sorted(unknown)}. "
                 f"Allowed fields are: {sorted(known)}."
             )
+        # Every field is a list of strings. A hand edit that writes one
+        # string instead would otherwise be taken apart letter by letter by
+        # list(), and the next save would write the pieces back over the
+        # team's notes; a number would load and then crash crib derivation.
+        for name in known:
+            value = raw.get(name, [])
+            if not isinstance(value, list) or not all(
+                isinstance(entry, str) for entry in value
+            ):
+                raise ValueError(
+                    f"{target}: field {name!r} should be a list of strings, "
+                    f'such as ["Admiral Harrow"], but it holds {value!r}.'
+                )
         return cls(**{
             name: list(raw.get(name, [])) for name in known
         })
