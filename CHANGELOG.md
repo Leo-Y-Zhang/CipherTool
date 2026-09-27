@@ -176,6 +176,42 @@ Add entries here as you work. Suggested headings: `Added`, `Changed`,
 
 ### Fixed
 
+- **`cipher_tool auto` refused a Nihilist message with "nothing was
+  attempted".** The letterless branch of `auto_solve` names Nihilist beside
+  Polybius as an all-digit family, but only ever tried Polybius, which needs
+  six or fewer distinct digits; Nihilist sums run to 110 and use all ten. The
+  paste screen read the same file at `strong`, so the capability was there and
+  one command could not reach it. The branch now hands a stream of 40 or more
+  numbers to `nihilist.solve`, and says so in the stage table whether or not
+  it decodes. Underneath that, `nihilist.solve` declined every
+  `NormalizedText` outright: it looked for a `.text` attribute that class does
+  not have, where the paste lives in `.original`.
+
+- **A setting a solver refuses is now an error line from every command, not a
+  traceback.** `vigenere --key 123`, `substitution --restarts 0`,
+  `polybius --square HELLO`, `hill --size 1` and a dozen more each ended in a
+  Python traceback from the terminal, while `beaufort --key 123` gave a
+  one-line error and the shell gave one for all of them. The solvers already
+  explain the problem in words; `main` now prints that message with exit code
+  2, the same as any other input error. An `--output` path in a folder that
+  does not exist, and a context file that is not valid JSON, are reported the
+  same way.
+
+- **`analyse` recommended two flags that do not exist.** The small-alphabet
+  and digit findings suggested `polybius <file> --decode` and the grid finding
+  `transposition <file> --deep`, so following the report's own advice ended in
+  a usage error. They now suggest commands the parser accepts, pinned by a
+  test that parses every suggestion. `transposition --routes` also no longer
+  demands a ciphertext it does not use, which is how ALGORITHMS.md already
+  told people to run it.
+
+- **A context file edited by hand could be shredded on load.** Each field is
+  a list of strings, and a field written as one string -- `"people": "Admiral
+  Harrow"` -- was passed through `list()`, which made fourteen one-letter
+  entries; the next `context --add` saved them back over the notes. A bare
+  number such as a year loaded and then crashed the first time cribs were
+  derived from it. Both are now refused on load with the field named.
+
 - **A paste made entirely of marks was announced as "Read 0 symbols".**
   `normalize` keeps A-Z and 0-9 and counts everything else as `other`, and the
   inventory never mentioned `other` -- correctly, because in an ordinary paste

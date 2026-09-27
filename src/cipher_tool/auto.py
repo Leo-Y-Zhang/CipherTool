@@ -57,6 +57,7 @@ from . import (
     hill,
     homophonic,
     keyword_cipher,
+    nihilist,
     paired,
     permutation,
     playfair,
@@ -654,6 +655,33 @@ def auto_solve(
                       "read as coordinate pairs"
                       + (" (odd count: the final unpaired digit was left out)"
                          if odd else "")),
+            ))
+            return result
+        # The other all-digit family named above. A Nihilist message is sums
+        # running up to 110, so its digit stream uses all ten digits and
+        # never reaches the branch above, and only the token boundaries make
+        # it readable -- which is why the solver is handed the paste itself
+        # rather than the digits. It refuses anything that is not a Nihilist
+        # stream, so trying it on other numbers costs almost nothing.
+        numbers = nihilist.parse(normalized.original)
+        if len(numbers) >= nihilist.MINIMUM_TOKENS:
+            started = time.monotonic()
+            found = nihilist.solve(
+                normalized, top=top, seed=seed,
+                **({"time_budget": max_time} if max_time else {}))
+            ranked = found.ranked()[:top]
+            for candidate in ranked:
+                result.candidates.add(candidate)
+            best = result.candidates.best()
+            result.stages.append(StageReport(
+                "Nihilist (number stream)", "fractionating", ran=True,
+                seconds=time.monotonic() - started, candidates=len(ranked),
+                best_score=best.score if best else None,
+                best_confidence=best.confidence() if best else None,
+                note=(f"{len(numbers)} numbers; the period and the additive "
+                      "key were deduced, not searched" if ranked else
+                      f"{len(numbers)} numbers, but no period and key "
+                      "decode all of them as a Nihilist cipher"),
             ))
             return result
         result.stages.append(StageReport(

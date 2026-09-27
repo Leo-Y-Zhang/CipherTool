@@ -101,6 +101,28 @@ class TestPersistence(unittest.TestCase):
             ContextNotes.load(self.cipher_path)
         self.assertIn("peple", str(context.exception))
 
+    def test_a_field_typed_as_one_string_is_refused_not_shredded(self) -> None:
+        # The obvious hand edit. list("Admiral Harrow") is fourteen
+        # one-letter entries, which is what a load used to return -- and
+        # what the next save wrote back over the team's notes.
+        ContextNotes.path_for(self.cipher_path).write_text(
+            json.dumps({"people": "Admiral Harrow"}), encoding="utf-8"
+        )
+        with self.assertRaises(ValueError) as context:
+            ContextNotes.load(self.cipher_path)
+        self.assertIn("people", str(context.exception))
+        self.assertIn("list", str(context.exception))
+
+    def test_an_entry_that_is_not_text_is_refused(self) -> None:
+        # A year typed as a bare number used to load, then crash the first
+        # time the cribs were derived from it.
+        ContextNotes.path_for(self.cipher_path).write_text(
+            json.dumps({"dates": [1914]}), encoding="utf-8"
+        )
+        with self.assertRaises(ValueError) as context:
+            ContextNotes.load(self.cipher_path)
+        self.assertIn("dates", str(context.exception))
+
     def test_saved_file_is_ascii(self) -> None:
         notes = ContextNotes()
         notes.add("people", "Se\u00f1or Vega")
