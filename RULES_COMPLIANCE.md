@@ -10,10 +10,16 @@ the claims for themselves.
 
 | | |
 |---|---|
-| **Checked against** | the 2026 rules |
-| **Checked on** | 16 August 2026 |
-| **Checked by** | a member of the team, reading the published rules |
-| **Outcome** | **All clear.** Nothing in the 2026 rules conflicts with a design decision recorded below. No code change was required. |
+| **Checked against** | the 2026 rules, re-read at `cipherchallenge.org/rules` |
+| **Checked on** | 3 October 2026 (the 2026 challenge opens 8 October) |
+| **Outcome** | **NOT all clear. One clause is unresolved and it carries a stated disqualification risk** -- see [The AI clause](#the-ai-clause-unresolved). Sections 1 to 6 below still hold: no third-party solver, no external service, no ciphertext leaves the machine, no automatic submission, standard library only. |
+
+> The previous entry in this table read **All clear**, dated 16 August 2026.
+> It was not wrong about what it tested; it tested the wrong rule. It reasoned
+> about the self-written-software clause and never considered the AI clause,
+> which is the one that binds here. That is exactly the failure this document
+> warns about two paragraphs down, so the old entry is replaced rather than
+> appended to.
 
 The eight questions in
 [What to re-check](#what-to-re-check-when-the-2026-rules-are-published)
@@ -30,6 +36,53 @@ nothing -- because it will read as current when it is not. Re-run it and
 re-date it.
 
 ---
+
+## The AI clause (unresolved)
+
+**The rule, quoted from the 2026 rules as published at `cipherchallenge.org/rules`,
+read on 3 October 2026:**
+
+> "You should not use deciphering tools you find elsewhere on the web and nor
+> should you use AI to decipher messages or to write software to do so. This
+> can result in disqualification."
+
+The first half is the clause this toolkit was designed around, and it is met:
+nothing here was taken from the web. **The second half was never considered.**
+It prohibits two separate things -- using AI to decipher, and using AI *to
+write software that deciphers*. The toolkit does not call any AI service at
+run time, so the first does not apply. The second is about how the code came
+to exist.
+
+**What this repository's own history shows.** From `git log --all`:
+
+| | |
+|---|---|
+| Commits authored by `Leo Y. Zhang` | 47 |
+| Commits authored by `Claude <noreply@anthropic.com>` | **9** |
+| Commit messages carrying a Claude co-author trailer | **9** |
+
+So AI assistance was used in writing this software. That is disclosed in the
+README and across the wider portfolio, and it is not in itself a problem --
+it only becomes one against a rule that forbids it for this competition.
+
+**What follows from that is a decision for the team, not for this file.** The
+honest reading of the clause is that the toolkit should not be used to produce
+answers for the 2026 challenge. Nothing in the code can resolve it: the
+history cannot be un-written, and rewriting the algorithms by hand would be a
+new project, not a fix. The options, stated plainly:
+
+1. **Do not use it for the 2026 challenge.** The repository stays what it is --
+   a piece of engineering with a public record -- and the challenge is entered
+   by hand, which is what the rules want.
+2. **Ask the organisers.** They are the only people who can say whether
+   AI-assisted authorship of a competitor's own tooling falls foul of the
+   clause. The disclosure is already written, so the question is short.
+3. Nothing else. In particular, do not use it and hope, and do not quietly
+   drop the disclosure -- the disclosure is the only reason this is a decision
+   rather than a problem.
+
+Until one of those is chosen, treat the toolkit as **not cleared for
+competition use**.
 
 ## The rule we designed around
 
@@ -231,8 +284,9 @@ Stated plainly, because overclaiming is its own kind of rule problem:
 
 ## What to re-check when the 2026 rules are published
 
-Worked through on 16 August 2026 against the 2026 rules: all clear, no code
-change required (see [Status of the rules check](#status-of-the-rules-check)).
+Re-run on 3 October 2026. Questions 1 to 8 still pass; **question 9 does not**
+(see [Status of the rules check](#status-of-the-rules-check) and
+[The AI clause](#the-ai-clause-unresolved)).
 
 Kept in full below because the list is the thing to re-run, not the answer.
 Do it again if the rules are amended, if the toolkit gains a dependency, or
@@ -262,6 +316,12 @@ not against this document.
 8. **Is there anything about disclosing tool use when submitting?** If a
    declaration is required, declare it. Do not omit it because the software
    is self-written.
+9. **Does the rule say anything about AI?** The 2026 rules do, and it is the
+   clause this document missed for seven weeks. Check both halves: AI used to
+   decipher a message, and AI used to *write the software*. The second is
+   about authorship, so the answer lives in `git log`, not in the code. See
+   [The AI clause](#the-ai-clause-unresolved).
+
 
 If any answer conflicts with a design decision above, change the code, then
 change this document. Do not leave the two disagreeing.
