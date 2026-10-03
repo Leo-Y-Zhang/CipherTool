@@ -17,9 +17,12 @@ access of any kind. See [RULES_COMPLIANCE.md](RULES_COMPLIANCE.md).
 > rules before using it in a live round.** Nobody at the competition has seen
 > or approved this software.
 >
-> Checked against the 2026 rules on 16 August 2026: all clear, no code change
-> required. That check is dated because it goes stale -- see
-> [RULES_COMPLIANCE.md](RULES_COMPLIANCE.md#status-of-the-rules-check).
+> **Re-checked on 3 October 2026: NOT cleared for competition use.** The 2026
+> rules prohibit using AI "to decipher messages or to write software to do so",
+> and this repository was written with AI assistance. The 16 August check read
+> all clear because it tested the self-written-software clause and not that one.
+> This is an unresolved integrity question, not a code defect -- see
+> [RULES_COMPLIANCE.md](RULES_COMPLIANCE.md#the-ai-clause-unresolved).
 
 ---
 
