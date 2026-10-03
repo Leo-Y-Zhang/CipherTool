@@ -53,35 +53,67 @@ write software that deciphers*. The toolkit does not call any AI service at
 run time, so the first does not apply. The second is about how the code came
 to exist.
 
-**What this repository's own history shows.** From `git log --all`:
+**The rule's own wording decides what to measure.** Rule 13 permits "any
+software that you write yourself", so the question is not *was AI used in this
+repository* but *did AI write any of the software that deciphers*. That is
+answerable per file, from the history, and it was answered on 3 October 2026
+by walking every commit whose author is `Claude` or which carries a Claude
+co-author trailer, and listing the files they touched.
 
-| | |
-|---|---|
-| Commits authored by `Leo Y. Zhang` | 47 |
-| Commits authored by `Claude <noreply@anthropic.com>` | **9** |
-| Commit messages carrying a Claude co-author trailer | **9** |
+Nine commits qualify. They touched **six files under `src/cipher_tool/`**:
 
-So AI assistance was used in writing this software. That is disclosed in the
-README and across the wider portfolio, and it is not in itself a problem --
-it only becomes one against a rule that forbids it for this competition.
+| File | What it does | Does it decipher? |
+|---|---|---|
+| `statistics.py` | Index of Coincidence, Kasiski examination, chi-squared fitting | **Yes -- every attack uses it** |
+| `scoring.py` | the n-gram language model, its smoothing, word segmentation | **Yes -- every attack uses it** |
+| `auto.py` | the automatic solver that chooses and runs attacks | **Yes** |
+| `nihilist.py` | the Nihilist cipher solver | **Yes** |
+| `cli.py` | command line parsing and reporting | No |
+| `context.py` | validation of a user-supplied context field | No |
 
-**What follows from that is a decision for the team, not for this file.** The
-honest reading of the clause is that the toolkit should not be used to produce
-answers for the 2026 challenge. Nothing in the code can resolve it: the
-history cannot be un-written, and rewriting the algorithms by hand would be a
-new project, not a fix. The options, stated plainly:
+and six files outside it: `ALGORITHMS.md`, `CHANGELOG.md`, `CLAUDE.md`,
+`README.md`, `pyproject.toml`, `.github/workflows/ci.yml`, plus six test files.
 
-1. **Do not use it for the 2026 challenge.** The repository stays what it is --
-   a piece of engineering with a public record -- and the challenge is entered
-   by hand, which is what the rules want.
-2. **Ask the organisers.** They are the only people who can say whether
-   AI-assisted authorship of a competitor's own tooling falls foul of the
-   clause. The disclosure is already written, so the question is short.
-3. Nothing else. In particular, do not use it and hope, and do not quietly
-   drop the disclosure -- the disclosure is the only reason this is a decision
-   rather than a problem.
+Most of the nine are corrections and hardening rather than new cryptanalysis --
+stale counts in documentation, a traceback turned into an error line, a
+hand-edited field refused. But not all of them: one let the automatic solver
+reach the Nihilist family, and one pinned confidence bands and an identity
+guard. Those change how the software deciphers.
 
-Until one of those is chosen, treat the toolkit as **not cleared for
+**So the honest statement is that AI contributed to the software that
+deciphers, including to the two modules every attack depends on.** That is
+disclosed in the README and across the wider portfolio, and it is not a
+problem in itself -- it is a problem only against a rule that forbids it for
+this competition, which rule 13 does.
+
+**What follows is a decision for the team, and it cannot be delegated to an
+AI.** That is not a figure of speech: asking an AI to rewrite the affected
+modules so the toolkit becomes compliant is self-defeating, because the
+rewrite would itself be AI-written software that deciphers. Any such help
+makes the repository *more* caught by rule 13, not less. Only three routes
+exist, and the first two need no code at all:
+
+1. **Enter the 2026 challenge without the toolkit.** Rule 13 permits
+   spreadsheets, text editors and the official BOSS Deciphering Tools, which
+   is how the challenge is meant to be entered. The repository stays what it
+   is -- a piece of engineering with a public record -- and simply does not
+   produce competition answers. Nothing needs to change for this to be true
+   today.
+2. **Ask the organisers.** They are the only people who can rule on whether
+   AI-assisted authorship of a competitor's *own* tooling falls under the
+   clause, and the case is genuinely arguable: most of the nine commits are
+   corrections to software that was already written. A draft of that question
+   is in [`docs/organiser-query.md`](docs/organiser-query.md). It has to be
+   sent by a team member, not on their behalf.
+3. **Rewrite the four deciphering modules from scratch, without AI** --
+   `statistics.py`, `scoring.py`, `auto.py` and `nihilist.py`. That would make
+   them the team's own work and would clear the clause. It is a real piece of
+   work, not a tidy-up: `scoring.py` and `statistics.py` are the core every
+   attack depends on. It also has to be genuinely unaided, which rules out
+   having an AI specify it line by line -- that is the same prohibition by
+   proxy.
+
+Until one of those is chosen and done, treat the toolkit as **not cleared for
 competition use**.
 
 ## The rule we designed around
