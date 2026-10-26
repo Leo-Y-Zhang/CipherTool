@@ -54,6 +54,7 @@ from . import (
     columnar,
     crossed,
     encodings,
+    foursquare,
     hill,
     homophonic,
     keyword_cipher,
@@ -516,6 +517,9 @@ def build_stages(effort: str, top: int, seed: int | None) -> list[Stage]:
                "restarts": bifid.DEFAULT_CLIMB_RESTARTS,
                "iterations": bifid.DEFAULT_CLIMB_ITERATIONS,
                "time_budget": 90.0}),
+        Stage("Four-square", "digraphic", "normal", 10.0, foursquare.solve,
+              {"top": top, "restarts": (1, 3, 5)[scale], "seed": seed,
+               "require_shape": True}),
         Stage("Playfair", "digraphic", "deep", 10.0, playfair.solve,
               {"top": top, "restarts": playfair_restarts, "seed": seed}),
         Stage("Hill 2x2", "digraphic", "deep", 10.0, hill.solve,
@@ -541,7 +545,8 @@ def order_stages(stages: Sequence[Stage], stats: TextStatistics) -> list[Stage]:
             preferred.append("monoalphabetic")
         elif "polyalphabetic" in family or "repeating key" in family:
             preferred.append("polyalphabetic")
-        elif "digraphic" in family or "playfair" in family:
+        elif ("digraphic" in family or "playfair" in family
+              or "four-square" in family):
             preferred.append("digraphic")
         elif "fractionating" in family or "polybius" in family:
             preferred.append("fractionating")

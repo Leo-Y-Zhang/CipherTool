@@ -618,7 +618,23 @@ def cipher_family_hypotheses(stats: TextStatistics) -> list[Hypothesis]:
                 )
             )
 
-    if "J" not in stats.letters and length >= 40 and length % 2 == 0:
+    doubled_digraphs = any(stats.letters[i] == stats.letters[i + 1]
+                           for i in range(0, length - 1, 2))
+    if ("J" not in stats.letters and stats.unique_letters == 25
+            and length >= 40 and length % 2 == 0 and doubled_digraphs):
+        hypotheses.append(
+            Hypothesis(
+                "Four-square (digraphic)",
+                "possible",
+                "All 25 letters other than J appear and the length is even. "
+                "Doubled letters inside digraphs rule out standard Playfair "
+                "but are allowed by four-square's two keyed squares.",
+                ("cipher_tool auto <file> --normal",),
+            )
+        )
+
+    if ("J" not in stats.letters and length >= 40 and length % 2 == 0
+            and not doubled_digraphs):
         hypotheses.append(
             Hypothesis(
                 "Playfair",
