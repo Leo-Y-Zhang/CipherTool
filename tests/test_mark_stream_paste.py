@@ -151,15 +151,12 @@ class TheRefusalNamesTheShape(unittest.TestCase):
         rendered = cli._render_letterless("!@#$% %$#@! @#$%! #$%!@ $%!@#")
         self.assertIn("Polybius square", rendered)
 
-    def test_a_three_mark_alphabet_is_not_promised_a_solver(self) -> None:
-        """2024 9B is ternary and nothing here reads it. Say that.
-
-        The refusal is reached only after every symbol solver has already
-        declined, so sending the reader to run those same solvers by hand is
-        homework with a known ending.
-        """
+    def test_a_three_mark_alphabet_reports_the_trifid_attempt(self) -> None:
+        """Ternary streams now reach Trifid; failure still needs explaining."""
         rendered = cli._render_letterless(TERNARY)
-        self.assertIn("no solver in this toolkit reads", rendered)
+        self.assertIn("tries Trifid", rendered)
+        self.assertIn("all six symbol mappings", rendered)
+        self.assertNotIn("no solver in this toolkit reads", rendered)
         self.assertNotIn("Polybius square", rendered)
 
     def test_a_three_mark_alphabet_is_not_sent_to_a_command_that_will_refuse(

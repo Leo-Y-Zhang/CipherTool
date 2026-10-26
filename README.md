@@ -409,7 +409,9 @@ express), route and grid transpositions including boustrophedon, spirals from
 each corner, and diagonal reads.
 **Digraphic and fractionating** -- Polybius (5x5 with I/J merged or Q
 dropped, 6x6 alphanumeric, arbitrary labels including ADFGX), Bifid with
-period, **four-square** (two keyed 5x5 ciphertext squares, I/J merged, with
+period, **Trifid** (keyed 3x3x3 cubes, letter ciphertext or raw
+three-symbol streams, with period and cube recovery by simulated annealing),
+**four-square** (two keyed 5x5 ciphertext squares, I/J merged, with
 a ciphertext-only simulated annealing attack), Playfair (including the variant whose same-column pairs move along the row rather than down the column -- two thirds of a message reads the same either way, so the wrong rule produces fluent, wrong English that no amount of extra search would fix), Hill 2x2 and 3x3, **ADFGVX and ADFGX** (fractionation
 through a keyed square followed by a columnar transposition -- the attack
 recovers the transposition key AND rebuilds the square, so the answer can be

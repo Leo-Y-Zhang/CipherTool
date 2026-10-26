@@ -58,6 +58,7 @@ from . import (
     stacked,
     substitution,
     transposition,
+    trifid,
     vigenere,
 )
 from .candidates import Candidate, CandidateSet, render_candidates
@@ -1431,12 +1432,13 @@ def _solve_symbol_stream(
 ) -> Any | None:
     """Try the solvers that can read a stream of symbols rather than letters.
 
-    Four of them can, and between them they cover what actually turns up:
-    ``encodings`` recognises hex, binary, decimal, Base64 and Morse, the
+    These cover the symbol notations the toolkit can currently attack:
+    Trifid reads ternary streams, ``encodings`` recognises hex, binary,
+    decimal, Base64 and Morse, the
     Polybius square search reads a numeric cipher without being told the
     square, ``crossed`` reads a paired-cell digraph cipher, and the homophonic
     family reads a stream with more distinct symbols than there are letters.
-    All four refuse anything they cannot make sense of, so running them
+    These solvers refuse inputs outside their supported alphabets, so running them
     speculatively costs nothing and asks the user for nothing.
 
     ``crossed`` is the one that closes the gap this function used to have.
@@ -1489,6 +1491,10 @@ def _solve_symbol_stream(
         paired_safe = paired_safe[:-1]
 
     for solver in (
+        lambda: (trifid.solve(normalized, scorer=engine, top=3, seed=args.seed,
+                              restarts=restarts,
+                              time_budget=budget if budget is not None else 60.0)
+                 if trifid.recognise(normalized) else CandidateSet()),
         lambda: encodings.solve(normalized, scorer=engine, top=3),
         lambda: polybius.solve_unknown_square(paired_safe, scorer=engine,
                                               top=3, seed=args.seed),
@@ -1667,7 +1673,20 @@ def _render_letterless(raw: str) -> str:
     # that the paragraph above has just said nothing here can read.
     numeric_square_helps = True
 
-    if body and not digits:
+    if body and len(set(body)) == 3:
+        numeric_square_helps = False
+        lines.append(
+            f"  All {len(body)} characters use 3 distinct symbols: "
+            + " ".join(sorted(set(body))) + "."
+        )
+        lines.append("")
+        lines.append(
+            "  Three symbols suggest ternary fractionation. The toolkit now "
+            "tries Trifid, including all six symbol mappings and periods "
+            "3..20 or the whole message. No readable result was recovered "
+            "within this search; that does not rule out Trifid."
+        )
+    elif body and not digits:
         distinct = sorted(set(body))
         lines.append(
             f"  All {len(body)} characters are marks -- not letters, not "
@@ -1692,7 +1711,7 @@ def _render_letterless(raw: str) -> str:
         elif len(distinct) <= _FRACTIONATION_ALPHABET_MAX:
             # Reached only after every symbol solver has already declined, so
             # naming the commands as though they were untried is homework
-            # with a known ending. 2024 challenge 9B is this case.
+            # with a known ending. Other small mark alphabets still reach here.
             numeric_square_helps = False
             lines.append(
                 opening
