@@ -409,7 +409,8 @@ express), route and grid transpositions including boustrophedon, spirals from
 each corner, and diagonal reads.
 **Digraphic and fractionating** -- Polybius (5x5 with I/J merged or Q
 dropped, 6x6 alphanumeric, arbitrary labels including ADFGX), Bifid with
-period, Playfair (including the variant whose same-column pairs move along the row rather than down the column -- two thirds of a message reads the same either way, so the wrong rule produces fluent, wrong English that no amount of extra search would fix), Hill 2x2 and 3x3, **ADFGVX and ADFGX** (fractionation
+period, **four-square** (two keyed 5x5 ciphertext squares, I/J merged, with
+a ciphertext-only simulated annealing attack), Playfair (including the variant whose same-column pairs move along the row rather than down the column -- two thirds of a message reads the same either way, so the wrong rule produces fluent, wrong English that no amount of extra search would fix), Hill 2x2 and 3x3, **ADFGVX and ADFGX** (fractionation
 through a keyed square followed by a columnar transposition -- the attack
 recovers the transposition key AND rebuilds the square, so the answer can be
 checked by hand), **Nihilist** (a Polybius square plus a repeating additive
@@ -758,7 +759,7 @@ CipherTool/
         caesar.py atbash.py affine.py keyword_cipher.py substitution.py
         vigenere.py beaufort.py autokey.py
         rail_fence.py columnar.py transposition.py permutation.py
-        polybius.py bifid.py playfair.py hill.py homophonic.py
+        polybius.py bifid.py playfair.py foursquare.py hill.py homophonic.py
         adfgvx.py nihilist.py crossed.py seriated.py
         stacked.py            a polyalphabetic under a transposition
         unscramble.py         a substitution under a block permutation
