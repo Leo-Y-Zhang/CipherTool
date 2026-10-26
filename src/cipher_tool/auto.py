@@ -68,6 +68,7 @@ from . import (
     stacked,
     substitution,
     transposition,
+    trifid,
     unscramble,
     vigenere,
 )
@@ -520,6 +521,9 @@ def build_stages(effort: str, top: int, seed: int | None) -> list[Stage]:
         Stage("Four-square", "digraphic", "normal", 10.0, foursquare.solve,
               {"top": top, "restarts": (1, 3, 5)[scale], "seed": seed,
                "require_shape": True}),
+        Stage("Trifid (unknown cube)", "fractionating", "deep", 15.0,
+              trifid.solve, {"top": top, "seed": seed, "raw": False,
+                             "time_budget": 60.0}),
         Stage("Playfair", "digraphic", "deep", 10.0, playfair.solve,
               {"top": top, "restarts": playfair_restarts, "seed": seed}),
         Stage("Hill 2x2", "digraphic", "deep", 10.0, hill.solve,
@@ -618,6 +622,22 @@ def auto_solve(
         effort=effort,
         time_budget=max_time,
     )
+
+    if trifid.recognise(normalized):
+        started = time.monotonic()
+        found = trifid.solve(normalized, scorer=engine, top=top, seed=seed,
+                             time_budget=max_time if max_time is not None else 60.0)
+        ranked = found.ranked()[:top]
+        result.candidates.extend(ranked)
+        best = result.candidates.best()
+        result.stages.append(StageReport(
+            "Trifid (ternary stream)", "fractionating", ran=True,
+            seconds=time.monotonic() - started, candidates=len(ranked),
+            best_score=best.score if best else None,
+            best_confidence=best.confidence() if best else None,
+            note="three-symbol stream; all six trit mappings considered",
+        ))
+        return result
 
     if normalized.is_empty:
         # NOTE: A LETTERLESS PASTE IS NOT AN EMPTY PASTE. A Polybius, Nihilist or
