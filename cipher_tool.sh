@@ -2,8 +2,8 @@
 # ===================================================================
 #  cipher_tool -- one-click launcher for macOS and Linux.
 #
-#  On a Mac: double-click this file in Finder to open the interactive
-#  shell. (The first time, macOS may ask you to confirm -- right-click
+#  On a Mac: double-click this file in Finder to open the paste-and-solve
+#  flow. (The first time, macOS may ask you to confirm -- right-click
 #  and choose Open.)
 #
 #  From a terminal, arguments are passed straight through:
@@ -56,8 +56,4 @@ fi
 # Default to the paste-and-solve flow. It is what someone wants in the
 # first thirty seconds, and unlike the command shell it copes with a
 # ciphertext pasted across several lines.
-"$PY" -m cipher_tool paste
-
-echo
-[ -t 0 ] && read -r -p "Press Return to close. " _
-exit 0
+exec "$PY" -m cipher_tool paste

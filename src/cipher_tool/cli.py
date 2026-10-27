@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
@@ -62,6 +63,7 @@ from . import (
     vigenere,
 )
 from .candidates import Candidate, CandidateSet, render_candidates
+from .clipboard import copy_to_clipboard
 from .readable import SEGMENTATION_THRESHOLD, read_plaintext
 from .normalize import (
     ALPHABET_SIZE,
@@ -1287,9 +1289,7 @@ def read_pasted_ciphertext(
         except (EOFError, KeyboardInterrupt):
             break
         if not line.strip():
-            if lines:
-                break
-            continue  # leading blank lines are just the user pressing Enter
+            break
         # Someone who opens this by mistake will type 'q' to get out, and
         # would otherwise find it solemnly analysed as a one-letter cipher.
         # Only honoured as the very first thing typed, so a ciphertext that
@@ -1324,13 +1324,15 @@ def _should_search_harder(confidence: str) -> bool:
 #: read as a pasted message rather than a mistyped menu key. Every menu key is
 #: a single letter and the longest word on that menu is "quit", so the gap
 #: between the two is wide; this sits well clear of both, and well below the
-#: shortest line of a ciphertext anyone would paste.
+#: usual line of a ciphertext. Short uppercase and symbol lines are also
+#: accepted so that the next-message prompt works for those notations.
 MENU_MESSAGE_LETTERS = 20
 
 
 def _looks_like_a_pasted_message(line: str) -> bool:
     """True when a line typed at the answer menu is really a ciphertext."""
-    return len(letters_only(line)) >= MENU_MESSAGE_LETTERS
+    return (len(letters_only(line)) >= MENU_MESSAGE_LETTERS
+            or (len(line.strip()) >= 2 and not any(ch.islower() for ch in line)))
 
 
 def _segmentation_is_trustworthy(plaintext: str, scorer: Any) -> bool:
@@ -1460,13 +1462,9 @@ def _solve_symbol_stream(
     found = CandidateSet()
     restarts = _SYMBOL_RESTARTS.get(effort, _SYMBOL_RESTARTS["fast"])
 
-    # `--max-time` used to stop at the letters-only pipeline, which shares its
-    # deadline across stages by weight while this path quietly ran as long as
-    # it liked: a five-second budget took forty-one seconds. The homophonic
-    # search is the only one of these that can run unboundedly, so it gets the
-    # budget; the others refuse, finish almost immediately, or -- in the case
-    # of `crossed` -- are bounded by a step count rather than a clock.
-    budget = args.max_time if getattr(args, "max_time", None) else None
+    # All symbol solvers share the remainder of this pass's time allowance.
+    budget = getattr(args, "max_time", None)
+    deadline = time.monotonic() + budget if budget is not None else None
 
     # `crossed` restarts are capped rather than taken from the effort ladder.
     # MEASURED: it recovers the key on the first restart at every length where
@@ -1497,23 +1495,29 @@ def _solve_symbol_stream(
                  if trifid.recognise(normalized) else CandidateSet()),
         lambda: encodings.solve(normalized, scorer=engine, top=3),
         lambda: polybius.solve_unknown_square(paired_safe, scorer=engine,
-                                              top=3, seed=args.seed),
+                                              top=3, seed=args.seed,
+                                              time_budget=budget),
         lambda: nihilist.solve(raw, scorer=engine, top=3, seed=args.seed,
                                **({"time_budget": budget} if budget else {})),
         lambda: seriated.solve(paired_safe, scorer=engine, top=3,
-                               seed=args.seed),
+                               seed=args.seed, time_budget=budget),
         lambda: crossed.solve(normalized, scorer=engine, top=3,
-                              seed=args.seed, restarts=crossed_restarts),
+                              seed=args.seed, restarts=crossed_restarts,
+                              time_budget=budget),
         lambda: homophonic.solve(normalized, scorer=engine, top=3,
                                  seed=args.seed, restarts=restarts,
                                  **({"time_budget": budget} if budget else {})),
     ):
+        if budget is not None and budget <= 0:
+            break
         try:
             found.extend(solver().ranked())
         except Exception:
             # A solver refusing this input is the ordinary case, not a fault
             # worth reporting to somebody who just pasted a message.
-            continue
+            pass
+        if deadline is not None:
+            budget = max(0.0, deadline - time.monotonic())
 
     best = found.best()
     if best is None or best.confidence() in {"weak", "unlikely"}:
@@ -1785,6 +1789,7 @@ def _render_answer(
     *,
     width: int = 60,
     exhausted: bool = False,
+    elapsed: float | None = None,
 ) -> str:
     """Show the best candidate as an answer a person can read and copy.
 
@@ -1824,6 +1829,9 @@ def _render_answer(
     lines.append(heading)
     lines.append("=" * 72)
     lines.append("")
+    if elapsed is not None:
+        lines.append(f"  Solved in {elapsed:.2f}s | {best.method} | {best.key}")
+        lines.append("")
 
     # A recognised pairing is printed above the answer whenever it was found,
     # not only on the screen that refuses. If the message really is written in
@@ -1974,13 +1982,16 @@ def run_paste_session(args: argparse.Namespace) -> int:
     print("=" * 72)
     print(f"  {PROGRAM} {__version__}  --  paste a message, get the plaintext")
     print("=" * 72)
-    return _paste_message(args, None)
+    next_message: tuple[str | None] | int = (None,)
+    while isinstance(next_message, tuple):
+        next_message = _paste_message(args, next_message[0])
+    return next_message
 
 
 def _paste_message(
     args: argparse.Namespace,
     first_line: str | None,
-) -> int:
+) -> int | tuple[str | None]:
     """Read one message, solve it, and run the answer menu over it.
 
     Split out from the banner so that starting a new message does not reprint
@@ -1993,6 +2004,9 @@ def _paste_message(
         if first_line is None else None,
         first_line=first_line,
     )
+    started = time.monotonic()
+    max_time = getattr(args, "max_time", None)
+    deadline = started + (max_time if max_time is not None else 120.0)
     normalized = normalize(text)
     pasted_anything = bool("".join(text.split()))
 
@@ -2007,22 +2021,9 @@ def _paste_message(
     if len(normalized.symbols) >= paired.MINIMUM_SYMBOLS:
         structure = paired.recognise(normalized.symbols)
 
-    if normalized.is_empty:
-        if pasted_anything:
-            # Something WAS pasted; it simply has no letters in it. Pointing
-            # at the right command was an improvement on claiming nothing had
-            # been pasted, but it is still homework: the solvers that read a
-            # symbol stream already exist, so try them before explaining.
-            found = _solve_symbol_stream(text, args, structure=structure)
-            if found is not None:
-                print(_render_answer(found, exhausted=True))
-                return 0
-            print(_render_letterless(text))
-        else:
-            print("\n  No letters were pasted, so there is nothing to work "
-                  "on.")
-            print("  Run it again and paste the ciphertext when prompted.")
-        return 1
+    if not pasted_anything:
+        print("\n  No letters were pasted, so there is nothing to work on.")
+        return 0
 
     # One surviving letter used to be enough to send a symbol stream down the
     # letters-only pipeline. That gate was the bug: "one letter present" is
@@ -2040,17 +2041,23 @@ def _paste_message(
     # alternating with no exceptions, checked against a shuffle control. It
     # fires on 0 of the 40 official archive ciphertexts.
     material = (
-        auto_module.non_letters_are_material(normalized)
+        normalized.is_empty
+        or auto_module.non_letters_are_material(normalized)
         or (structure is not None and structure.detected)
     )
 
     def search(level: str) -> "auto_module.AutoResult":
+        remaining = max(0.0, deadline - time.monotonic())
+        # Leave room for each later rung rather than giving fast the whole cap.
+        budget = remaining / (len(EFFORT_LADDER) - EFFORT_LADDER.index(level))
         if material:
             # No fall-through to the letters-only pipeline, ever. A reading
             # that discards a third of the message is not a worse answer, it
             # is an answer to a different question.
+            search_args = argparse.Namespace(**vars(args))
+            search_args.max_time = budget
             found = _solve_symbol_stream(
-                text, args, structure=structure, effort=level
+                text, search_args, structure=structure, effort=level
             )
             if found is not None:
                 return found
@@ -2063,8 +2070,31 @@ def _paste_message(
             )
         return auto_module.auto_solve(
             normalized, effort=level, top=max(args.top, 5), seed=args.seed,
-            max_time=args.max_time,
+            max_time=budget,
         )
+
+    def show_answer() -> None:
+        if material and result.candidates.best() is None:
+            if normalized.is_empty:
+                print(_render_letterless(text))
+            else:
+                print(_render_symbol_refusal(normalized, structure))
+        else:
+            print(_render_answer(
+                result, exhausted=effort == EFFORT_LADDER[-1],
+                elapsed=time.monotonic() - started,
+            ))
+        best = result.candidates.best()
+        if (best is not None and best.plaintext
+                and not result.candidates.looks_unencrypted()):
+            if getattr(args, "no_copy", False):
+                print("  Not copied to clipboard (--no-copy).")
+            elif copy_to_clipboard("".join(best.plaintext.splitlines())):
+                print("  Copied the exact decrypted letters to the clipboard.")
+            else:
+                print("  Not copied to clipboard (tool unavailable or failed).")
+        else:
+            print("  Not copied to clipboard (no decrypted answer).")
 
     effort = EFFORT_LADDER[0]
     result = search(effort)
@@ -2079,24 +2109,22 @@ def _paste_message(
     # find, searching harder cannot help, and it is the exact path on which a
     # deeper search used to manufacture an identity key and call it strong.
     #
-    # A material symbol stream is another, and a stronger one. Climbing the
-    # ladder by itself is exactly how this screen spent three minutes going
-    # fast -> normal -> deep on a card cipher and arrived at a confident wrong
-    # answer. On that path the user asks for more search or it does not
-    # happen.
-    while (not material
-            and effort != EFFORT_LADDER[-1]
+    # Symbol streams keep their own routing at every rung; deeper effort must
+    # never turn into a letters-only reading of a different message.
+    while (effort != EFFORT_LADDER[-1]
             and not result.candidates.looks_unencrypted()
-            and _should_search_harder(_best_confidence(result))):
+            and _should_search_harder(_best_confidence(result))
+            and time.monotonic() < deadline):
         effort = EFFORT_LADDER[EFFORT_LADDER.index(effort) + 1]
         print(f"\n  That did not score as clear English. Searching harder "
               f"({effort}) on its own -- this takes longer.")
+        previous = result
         result = search(effort)
+        result.candidates.extend(previous.candidates.ranked())
 
-    if material and result.candidates.best() is None:
-        print(_render_symbol_refusal(normalized, structure))
-    else:
-        print(_render_answer(result, exhausted=effort == EFFORT_LADDER[-1]))
+    if time.monotonic() >= deadline:
+        print("\n  Overall time limit reached; showing the best result so far.")
+    show_answer()
 
     # Further searching runs only when the user asks for it. Re-solving on
     # every keypress made copying the answer cost as long as finding it.
@@ -2109,7 +2137,8 @@ def _paste_message(
         # know the toolkit. Three are enough: take the answer, ask another
         # question, leave. Everything else still exists as a typed word for
         # anyone who wants it -- nothing was removed, only stopped shouting.
-        print("  [c] copy the answer    [Enter] another message    [q] quit")
+        print("  Paste the next message (or press Enter on a blank line to quit)")
+        print("  [c] copy the answer    [n] new message    [q] quit")
         try:
             typed = input("  > ")
         except (EOFError, KeyboardInterrupt):
@@ -2163,7 +2192,7 @@ def _paste_message(
             args.input = None
             return run_shell(args)
         if choice in {"n", "new"}:
-            return _paste_message(args, None)
+            return (None,)
 
         # A ciphertext pasted at this prompt is the commonest thing to arrive
         # here that is not a menu key, and it used to be discarded in silence
@@ -2171,25 +2200,20 @@ def _paste_message(
         # the tool thought for a while and printed an answer, just not to the
         # question that had been asked. Treat it as the new message it plainly
         # is, and go on reading the rest of the paste.
-        if _looks_like_a_pasted_message(typed):
+        if (_looks_like_a_pasted_message(typed)
+                and choice not in {"harder", "deeper", "more"}):
             print("\n  That looks like a new ciphertext, not a menu choice. "
                   "Solving it instead.")
-            return _paste_message(args, typed)
+            return (typed,)
 
-        # A bare Enter now means "another message", because that is what a
-        # person who has just been handed an answer wants next. Searching
-        # harder moved OFF the Enter key and onto the word, and off the menu
-        # entirely: on the ordinary path the ladder already climbs itself
-        # before the answer is printed, so a reader who has to press Enter to
-        # get a real search is being asked to do the tool's job.
         if not choice:
-            return _paste_message(args, None)
+            return 0
 
         # Anything else typed is a mistake, and saying so beats obeying a
         # command nobody gave.
         if choice not in {"harder", "deeper", "more"}:
             print(f"\n  '{typed.strip()}' is not one of the options above.")
-            print("  [c] to copy the answer, Enter for another message, "
+            print("  [c] to copy the answer, [n] for another message, "
                   "[q] to quit.")
             # The menu was cut to three on purpose, but the rest did not go
             # away -- they stopped shouting. Naming them HERE keeps the
@@ -2204,6 +2228,9 @@ def _paste_message(
             print(f"  Also, typed in full: {extra}.")
             continue
 
+        if time.monotonic() >= deadline:
+            print("\n  Overall time limit reached. Paste a new message to start again.")
+            continue
         if effort == "fast":
             effort = "normal"
         elif effort == "normal":
@@ -2214,14 +2241,13 @@ def _paste_message(
                   "[s] and then  crib THE")
             continue
         print(f"\n  Searching harder ({effort})... this takes longer.")
+        previous = result
         result = search(effort)
+        result.candidates.extend(previous.candidates.ranked())
         # `search` already knows which path this message is on, so trying
         # harder means more of the SAME search. It never means falling back
         # to the letters-only pipeline, which is the thing being refused.
-        if material and result.candidates.best() is None:
-            print(_render_symbol_refusal(normalized, structure))
-        else:
-            print(_render_answer(result, exhausted=effort == EFFORT_LADDER[-1]))
+        show_answer()
         continue
 
 
@@ -2748,8 +2774,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="paste a ciphertext and get the plaintext (the simplest way in)")
     add_output_arguments(paste_parser)
     add_search_arguments(paste_parser)
+    paste_parser.add_argument("--no-copy", action="store_true",
+                              help="do not copy the answer to the clipboard")
     paste_parser.set_defaults(handler=command_paste, group=5, input=None,
-                              text=None)
+                              text=None, max_time=120.0)
 
     # The shell has to tell "unknown command" from "known command, bad
     # options", and argparse exposes the registered names (aliases included)

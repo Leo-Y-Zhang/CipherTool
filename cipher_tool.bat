@@ -2,7 +2,7 @@
 REM ===================================================================
 REM  cipher_tool -- one-click launcher for Windows.
 REM
-REM  Double-click this file to open the interactive shell.
+REM  Double-click this file to open the paste-and-solve flow.
 REM  Or run it from a terminal with arguments:
 REM      cipher_tool.bat analyse message.txt
 REM      cipher_tool.bat auto message.txt --fast
@@ -34,9 +34,7 @@ REM Default to the paste-and-solve flow. It is what someone wants in the
 REM first thirty seconds, and unlike the command shell it copes with a
 REM ciphertext pasted across several lines.
 %PY% -m cipher_tool paste
-echo.
-pause
-exit /b 0
+exit /b %errorlevel%
 
 :no_python
 echo.

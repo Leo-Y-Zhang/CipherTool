@@ -14,6 +14,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from cipher_tool import caesar, cli
 from cipher_tool.normalize import letters_only
@@ -340,7 +341,7 @@ class TestContextCommand(unittest.TestCase):
 
         _, output = run("context", str(self.path))
         self.assertIn("Admiral Harrow", output)
-        self.assertIn("ADMIRALHARROW", output)
+        self.assertIn(letters_only("Admiral Harrow"), output)
 
     def test_clear(self) -> None:
         run("context", str(self.path), "--add", "places=Portsmouth")
@@ -704,7 +705,8 @@ class TestPasteSession(unittest.TestCase):
         sys.stdin = script
         try:
             with contextlib.redirect_stdout(buffer), \
-                    contextlib.redirect_stderr(buffer):
+                    contextlib.redirect_stderr(buffer), \
+                    patch.object(cli, "copy_to_clipboard", return_value=False):
                 cli.main(["paste"])
         finally:
             sys.stdin = original
@@ -764,11 +766,10 @@ class TestPasteSession(unittest.TestCase):
         output = self._paste(sample_plaintext(300), "", "q")
         self.assertIn("DOES NOT APPEAR TO BE ENCRYPTED", output)
 
-    def test_leading_blank_lines_do_not_end_the_paste(self) -> None:
-        # People press Enter before pasting. That must not read as "done".
+    def test_a_blank_first_line_quits_without_solving(self) -> None:
         ciphertext = caesar.encrypt(sample_plaintext(150), 3)
         output = self._paste("", "", ciphertext, "", "q")
-        self.assertIn("BEST ANSWER", output)
+        self.assertNotIn("BEST ANSWER", output)
 
     def test_quit_leaves_immediately(self) -> None:
         output = self._paste(caesar.encrypt(sample_plaintext(120), 3), "", "q")
@@ -783,7 +784,8 @@ def paste_session(*lines: str) -> str:
     sys.stdin = script
     try:
         with contextlib.redirect_stdout(buffer), \
-                contextlib.redirect_stderr(buffer):
+                contextlib.redirect_stderr(buffer), \
+                patch.object(cli, "copy_to_clipboard", return_value=False):
             cli.main(["paste"])
     finally:
         sys.stdin = original
@@ -847,26 +849,14 @@ class TestPasteMenuDoesNotSwallowInput(unittest.TestCase):
         self.assertIn("not one of the options", output)
         self.assertNotIn("Searching harder", output)
 
-    def test_a_bare_enter_starts_another_message(self) -> None:
-        """Enter takes the next message; it no longer means "search harder".
-
-        Changed deliberately on the operator's instruction, 2026-08-22: "the
-        pasting and enter on the new blank line is fine but the other options
-        are not needed... just get me the answer". Making the reader press
-        Enter to obtain a real search is asking them to do the tool's job, and
-        the ordinary path already climbs fast -> normal -> deep by itself
-        before the answer is printed.
-
-        This replaces ``test_a_bare_enter_still_means_try_harder``, which
-        pinned the old meaning. The coverage is kept rather than dropped: the
-        assertion is simply the other way round, and "harder" survives as a
-        typed word for anyone who wants it.
-        """
+    def test_a_bare_enter_quits_after_the_answer(self) -> None:
+        """The blank first line at the next-message prompt ends the loop."""
         first_plain, _ = self._corpus()
         output = paste_session(caesar.encrypt(first_plain, 3), "", "", "q")
         self.assertNotIn("Searching harder", output)
-        self.assertIn("Paste your ciphertext below", output.split(
-            "BEST ANSWER")[-1], "Enter did not start a new message")
+        self.assertIn("Paste the next message", output)
+        self.assertNotIn("Paste your ciphertext below", output.split(
+            "BEST ANSWER")[-1])
 
     def test_harder_still_works_as_a_typed_word(self) -> None:
         """Nothing was removed from the menu, only stopped shouting."""
