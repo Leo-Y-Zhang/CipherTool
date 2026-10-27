@@ -173,6 +173,9 @@ The toolkit does not contain, call, wrap, or fall back to:
 the package imports `socket`, `ssl`, `urllib`, `http`, `requests`, `httpx`,
 `aiohttp`, `ftplib`, `smtplib`, `telnetlib`, `webbrowser`, `subprocess`,
 `ctypes`, or several others, or if a URL appears anywhere in the source.
+The sole process-execution exception is `clipboard.py`, which invokes only
+the installed local clipboard tools (`clip`, `pbcopy`, `wl-copy`, or `xclip`)
+without a shell. No external solver is invoked.
 
 ## 3. No competition ciphertext leaves this machine
 
@@ -198,9 +201,10 @@ unless you pass `--output`.
 The toolkit produces candidate plaintexts locally and prints them. It does
 not, and cannot, submit anything to the competition website.
 
-There is no submit command, no browser automation, no form posting, and no
-clipboard automation. A human team member must read the candidate, decide
-whether it is right, and enter it themselves.
+There is no submit command, no browser automation, and no form posting.
+The paste screen copies the best candidate's decrypted letters to the local system
+clipboard unless `--no-copy` is set. A human team member must read the
+candidate, decide whether it is right, and paste it themselves.
 
 **How to check:** section 3 rules out any network path. In addition,
 `test_nothing_submits_answers_anywhere` searches the source for submission

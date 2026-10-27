@@ -17,6 +17,7 @@ from cipher_tool.context import (
     merge_cribs,
     parse_assignment,
 )
+from cipher_tool.normalize import letters_only
 
 
 class TestEditing(unittest.TestCase):
@@ -141,9 +142,9 @@ class TestDerivedMaterial(unittest.TestCase):
 
     def test_cribs_include_whole_entries_and_their_words(self) -> None:
         cribs = self.notes.crib_candidates()
-        self.assertIn("ADMIRALHARROW", cribs)
-        self.assertIn("ADMIRAL", cribs)
-        self.assertIn("HARROW", cribs)
+        self.assertIn(letters_only(self.notes.people[0]), cribs)
+        for word in self.notes.people[0].split():
+            self.assertIn(letters_only(word), cribs)
         self.assertIn("MEETMEATTHEHARBOUR", cribs)
 
     def test_cribs_are_longest_first(self) -> None:
@@ -161,7 +162,7 @@ class TestDerivedMaterial(unittest.TestCase):
         keys = self.notes.keyword_candidates()
         self.assertIn("TEMPEST", keys)
         self.assertIn("PORTSMOUTH", keys)
-        self.assertIn("HARROW", keys)
+        self.assertIn(letters_only(self.notes.people[0].split()[-1]), keys)
 
     def test_empty_notes_produce_nothing(self) -> None:
         empty = ContextNotes()
@@ -173,8 +174,9 @@ class TestDerivedMaterial(unittest.TestCase):
         self.assertEqual(merged[0], "THE")
 
     def test_merge_cribs_deduplicates(self) -> None:
-        merged = merge_cribs(self.notes, extra=["harrow"])
-        self.assertEqual(merged.count("HARROW"), 1)
+        word = self.notes.people[0].split()[-1].lower()
+        merged = merge_cribs(self.notes, extra=[word])
+        self.assertEqual(merged.count(letters_only(word)), 1)
 
 
 class TestRendering(unittest.TestCase):

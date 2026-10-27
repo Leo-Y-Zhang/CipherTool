@@ -11,7 +11,8 @@ What is checked here
    library or another module of this package.
 2. No networking capability at all -- statically (no networking module is
    imported) and dynamically (opening a socket during a full solve raises).
-3. No process execution, browser control or dynamic code loading.
+3. No process execution except local clipboard tools; no browser control or
+   dynamic code loading.
 4. No hard-coded URLs in the source.
 5. No declared dependencies in ``pyproject.toml``.
 6. No automatic submission of answers anywhere.
@@ -120,6 +121,8 @@ class TestOffline(unittest.TestCase):
             if path.name == "test_compliance.py":
                 continue  # this file names them in order to forbid them
             banned = imported_modules(path) & FORBIDDEN_MODULES
+            if path == PACKAGE / "clipboard.py":
+                banned -= {"subprocess"}  # local clipboard tools only
             if banned:
                 offenders[path.name] = banned
         self.assertEqual(offenders, {},
