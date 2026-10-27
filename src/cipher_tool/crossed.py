@@ -71,6 +71,7 @@ import collections
 import itertools
 import math
 import random
+import time
 from dataclasses import dataclass, field
 
 #: Fewer units than this and the index of coincidence is noise, so the
@@ -453,7 +454,8 @@ def _frequency_start(stream) -> dict:
     return {cls: ALPHABET.index(BY_FREQUENCY[i]) for i, cls in enumerate(order)}
 
 
-def _anneal(left, right, scorer, restarts: int, steps: int, rng) -> Reading:
+def _anneal(left, right, scorer, restarts: int, steps: int, rng,
+            deadline: float | None = None) -> Reading:
     """Simulated annealing over the two squares at once."""
     classes_one = sorted(set(left))
     classes_two = sorted(set(right))
@@ -475,6 +477,8 @@ def _anneal(left, right, scorer, restarts: int, steps: int, rng) -> Reading:
 
         cycle = max(steps // 3, 1)
         for step in range(steps):
+            if deadline is not None and step % 64 == 0 and time.monotonic() >= deadline:
+                break
             phase = (step % cycle) / cycle
             temperature = PEAK_TEMPERATURE * (1.0 - phase) ** 2 + 0.4
 
@@ -516,12 +520,15 @@ def _anneal(left, right, scorer, restarts: int, steps: int, rng) -> Reading:
                 left, right, local[1], local[2], buffer))
             best = Reading(plaintext=text, score=local[0],
                            square_one=local[1], square_two=local[2])
+        if deadline is not None and time.monotonic() >= deadline:
+            break
     assert best is not None
     return best
 
 
 def recover(split: Split, *, scorer=None, restarts: int = 3,
-            steps: int = STEPS_PER_RESTART, seed: int | None = None) -> Reading:
+            steps: int = STEPS_PER_RESTART, seed: int | None = None,
+            time_budget: float | None = None) -> Reading:
     """Climb the two squares for a recognised split and return the reading.
 
     The recogniser cannot say WHICH half carries the first letter of the
@@ -536,6 +543,7 @@ def recover(split: Split, *, scorer=None, restarts: int = 3,
 
     engine = scorer if scorer is not None else default_scorer()
     rng = random.Random(0 if seed is None else seed)
+    deadline = time.monotonic() + time_budget if time_budget is not None else None
 
     orders = (
         (split.first_classes, split.second_classes,
@@ -544,13 +552,13 @@ def recover(split: Split, *, scorer=None, restarts: int = 3,
          split.second_extent, split.first_extent),
     )
     screened = [
-        (_anneal(left, right, engine, 1, steps, rng), left, right, one, two)
+        (_anneal(left, right, engine, 1, steps, rng, deadline), left, right, one, two)
         for left, right, one, two in orders
     ]
     screened.sort(key=lambda row: row[0].score, reverse=True)
     best, left, right, extent_one, extent_two = screened[0]
-    if restarts > 1:
-        deeper = _anneal(left, right, engine, restarts - 1, steps, rng)
+    if restarts > 1 and (deadline is None or time.monotonic() < deadline):
+        deeper = _anneal(left, right, engine, restarts - 1, steps, rng, deadline)
         if deeper.score > best.score:
             best = deeper
     best.split = split
@@ -568,10 +576,8 @@ def solve(source, *, scorer=None, top: int = 5, seed: int | None = None,
     has to stay cheap and silent, because a stage that always proposes
     something turns every message into this cipher.
 
-    ``time_budget`` is accepted and ignored on purpose: the search is bounded
-    by a step count, so it is reproducible from the seed, and a stage that
-    RAISES on ``time_budget`` gets silently dropped from the pipeline. That
-    has happened in this codebase before and cost a whole challenge.
+    ``time_budget`` caps the square search; without it the step count and seed
+    make the search reproducible.
     """
     from .candidates import Candidate, CandidateSet
     from .normalize import normalize
@@ -590,7 +596,8 @@ def solve(source, *, scorer=None, top: int = 5, seed: int | None = None,
         return empty
 
     engine = scorer if scorer is not None else default_scorer()
-    reading = recover(split, scorer=engine, restarts=restarts, seed=seed)
+    reading = recover(split, scorer=engine, restarts=restarts, seed=seed,
+                      time_budget=time_budget)
     diagnostics = {
         "split_shape": split.shape,
         "split_ic_first": round(split.ic_first, 5),

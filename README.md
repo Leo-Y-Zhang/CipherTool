@@ -57,6 +57,12 @@ git clone https://github.com/Leo-Y-Zhang/CipherTool.git
 
 ### Step 3 -- double-click the launcher
 
+Windows: press the Windows key, type Cipher Tool, press Enter, paste, then press Enter on a blank line; the answer is copied for you.
+
+For that Windows shortcut, create a shortcut to `cipher_tool.bat`, name it
+`Cipher Tool`, and place it in the Start menu folder (press Win+R and enter
+`shell:programs`) once. You can also double-click the launcher directly:
+
 | Your computer | Double-click this file |
 |---|---|
 | **Windows** | `cipher_tool.bat` |
@@ -92,19 +98,29 @@ BEST ANSWER  (scores as clear English)
   proven answer.
 ```
 
-Then choose:
+The exact decrypted letters are copied to your system clipboard, without
+line breaks or guessed spacing. A status line says whether copying worked.
+Use `paste --no-copy` to opt out; if no clipboard tool is installed or the
+clipboard is unavailable, the answer still prints normally. Windows uses
+`clip`, macOS uses `pbcopy`, and Linux tries `wl-copy` then
+`xclip -selection clipboard`.
+
+Paste the next message directly, or press Enter on a blank line to quit:
 
 ```
-[Enter] try harder      [a] all candidates      [w] why (full statistics)
-[s] full command shell  [n] new message         [q] quit
+Paste the next message (or press Enter on a blank line to quit)
+[c] copy the answer    [n] new message    [q] quit
 ```
 
 **You do not have to ask it to try harder.** If the first pass does not read
 as clear English the paste screen climbs `fast` to `normal` to `deep` on its
 own, announcing each step, and stops only when a reading scores `strong` or
-the search is exhausted. A long message can take a couple of minutes that
-way. Press Enter to push it further by hand, or `s` for the command shell
-when you want to drive it yourself.
+the search is exhausted or its overall time budget runs out (120 seconds
+per message by default; `paste --max-time 30` changes it). Above the answer,
+one summary line shows elapsed time, cipher family and key. Type `harder`
+to push it further within the remaining budget, or `s` for the command shell.
+The typed commands `a` (all candidates), `w` (statistics), and `f` (save)
+also remain available.
 
 **Paste another ciphertext straight at that prompt** and it is taken as a
 new message rather than a menu key -- you do not have to press `n` first.
