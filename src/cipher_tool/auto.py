@@ -331,12 +331,16 @@ def build_stages(effort: str, top: int, seed: int | None) -> list[Stage]:
     # factorial of this: 6! is 720 orders, 8! is 40,320. Six covers the
     # commonest keyword lengths cheaply; deep goes to eight.
     adfgvx_max = (6, 7, 8)[scale]
-    # Block sizes up to 8 are enumerated exhaustively and cost almost
-    # nothing, because the factorial is paid against an n-by-n matrix rather
-    # than against the message: the whole sweep of sizes 2 to 8 takes under a
-    # second on 2,000 letters. Beyond 8 the search stops being exhaustive, so
-    # only the slower effort levels go there.
-    permutation_max = (8, 10, 12)[scale]
+    # MEASURED on 2,000 letters: fast 1.2s, normal 7.9s, deep 44.7s;
+    # on 3,500 letters, fast 1.3s. Rechecked with a fixed random 24-letter
+    # key: 0.86/7.04/34.42s on 2,000 letters, fast 1.30s on 3,500.
+    # These are permutation-stage timings: sizes through 8 enumerate every
+    # arrangement against the adjacency matrices; larger sizes use restarts
+    # and full-score segment/swap polish. On 2,112 letters the full deep
+    # pipeline recovered the exact 24-letter key at rank 1, strong, in a
+    # 37.80s stage with a 45.86s share of 270s. The larger weight below is
+    # needed as well as the ceiling; the old share never reached size 24.
+    permutation_max = (8, 20, 30)[scale]
 
     stages: list[Stage] = [
         Stage("encodings", "encoding", "fast", 0.2, encodings.solve,
@@ -365,7 +369,12 @@ def build_stages(effort: str, top: int, seed: int | None) -> list[Stage]:
         # at `strong` in under a second. It runs from --fast because it is
         # cheap and because a transposition is the first thing to suspect when
         # the letter frequencies are English and the text is not.
-        Stage("block permutation", "transposition", "fast", 2.0,
+        # MEASURED: weight 2 gave this stage only 3.57s of a 270s deep
+        # run. It stopped at size 22, leaving a period-12 partial ahead of
+        # a period-24 answer it never tried. Long blocks need a larger share
+        # as well as a higher ceiling; fast and normal keep their old share.
+        Stage("block permutation", "transposition", "fast",
+              (2.0, 2.0, 30.0)[scale],
               permutation.solve,
               {"top": top, "max_period": permutation_max, "seed": seed}),
         # Runs from --fast despite being a two-stage cipher, because it costs
@@ -791,6 +800,8 @@ def auto_solve(
         # agree about a convention none of them owns.
         for candidate in produced:
             candidate.diagnostics["reads"] = stage.reads
+            if "time_budget" in options:
+                candidate.diagnostics["stage_time_budget"] = options["time_budget"]
         result.candidates.extend(produced)
 
         note = ""

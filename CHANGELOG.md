@@ -176,6 +176,21 @@ Add entries here as you work. Suggested headings: `Added`, `Changed`,
 
 ### Fixed
 
+- **Deep auto search now budgets for long block permutations.** A synthetic
+  2,112-letter message under a random 24-letter key received only 3.57s of a
+  270s run: the permutation sweep stopped at size 22 and offered a period-12
+  partial as `promising`. Deep's stage weight is now 30 instead of 2; fast
+  and normal keep their existing allocation. Candidates also report
+  `stage_time_budget`, beside `periods_tried` and `time_budget_hit`.
+  The long-block search checks rotations of both the arrangement and inverse
+  read order, then polishes segments and swaps on the full English score
+  using cached four-stripe windows. Divisors are searched first, and the
+  pipeline ceilings are 8/20/30. Confidence thresholds are unchanged.
+  The fixed full 270s run allocated 45.86s to permutation, completed its
+  sweep in 37.80s, and returned the exact 24-letter key at rank 1 as `strong`.
+  A regression retains the full stage plan and real permutation search,
+  stubbing unrelated solver bodies to keep the test below a minute.
+
 - **`cipher_tool auto` refused a Nihilist message with "nothing was
   attempted".** The letterless branch of `auto_solve` names Nihilist beside
   Polybius as an all-digit family, but only ever tried Polybius, which needs

@@ -8,6 +8,8 @@ partial run as a complete one.
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
+from unittest.mock import patch
 
 from cipher_tool import caesar, vigenere
 from cipher_tool.auto import (
@@ -30,6 +32,16 @@ def sample_plaintext(length: int = 500) -> str:
 
 
 class TestStagePlanning(unittest.TestCase):
+    def test_permutation_limits_reach_long_blocks(self) -> None:
+        limits = {}
+        for effort in EFFORT_LEVELS:
+            stage = next(s for s in build_stages(effort, 5, 1)
+                         if s.name == "block permutation")
+            limits[effort] = stage.options["max_period"]
+        self.assertEqual(limits["fast"], 8)
+        self.assertGreaterEqual(limits["normal"], 20)
+        self.assertEqual(limits["deep"], 30)
+
     def test_effort_levels_are_nested(self) -> None:
         fast = {stage.name for stage in build_stages("fast", 5, None)}
         normal = {stage.name for stage in build_stages("normal", 5, None)}
@@ -74,6 +86,42 @@ class TestStagePlanning(unittest.TestCase):
 
 
 class TestPipeline(unittest.TestCase):
+    def test_deep_budget_reaches_a_24_letter_block_key(self) -> None:
+        """Keep the real plan and budget shares, without minutes of rivals.
+
+        Only unrelated solver bodies are replaced. Dropping their stages
+        would give permutation the entire budget and hide the regression.
+        The permutation search, ranking and confidence are all real.
+        """
+        import random
+        from cipher_tool import permutation
+
+        plain = sample_plaintext(2112)
+        order = tuple(random.Random(1).sample(range(24), 24))
+        ciphertext = permutation.encrypt(plain, order)
+        original_build = build_stages
+
+        def plan(*args):
+            return [stage if stage.name == "block permutation" else
+                    replace(stage, run=lambda *args, **kwargs: CandidateSet())
+                    for stage in original_build(*args)]
+
+        with patch("cipher_tool.auto.build_stages", side_effect=plan):
+            result = auto_solve(ciphertext, effort="deep", top=5,
+                                max_time=270, seed=1)
+        best = result.candidates.best()
+        self.assertIsNotNone(best)
+        self.assertIn("24", best.diagnostics["periods_tried"].split(","),
+                      best.diagnostics)
+        self.assertEqual(best.plaintext, plain)
+        self.assertEqual(best.diagnostics["read_order"],
+                         ",".join(map(str, order)))
+        self.assertEqual(best.confidence(), "strong")
+        # A fast machine can finish size 24 inside the old 3.6s share, so
+        # the answer alone does not prove the allocation. The sweep through
+        # 24 measured 14s to 38s on 2,112 letters; the share must cover it.
+        self.assertGreaterEqual(best.diagnostics["stage_time_budget"], 20.0)
+
     def test_finds_a_caesar_quickly(self) -> None:
         result = auto_solve(caesar.encrypt(sample_plaintext(400), 9),
                             effort="fast", top=5, seed=1)
