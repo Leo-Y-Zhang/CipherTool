@@ -1717,6 +1717,52 @@ a single place too early needs everything after it to shift along, and no
 swap of two positions does that. Lifting one position out and reinserting it
 elsewhere does it in a single move.
 
+The adjacency sum is only a proposal score. Each shortlisted arrangement is
+checked at every rotation under BOTH key conventions: rotating the stripe
+arrangement changes the plaintext block boundary, while rotating its inverse
+read order changes the ciphertext offsets. Each rotation is decrypted and
+scored with the full English model. The best then climbs by exchanging
+adjacent segments and swapping individual positions, again on the full
+score, until neither move helps.
+
+Polishing caches four-stripe windows, summing each distinct window down the
+blocks once. Three windows cross each block boundary; the initial short
+contexts and the ragged tail are scored separately. This is the full Markov
+objective, including the tail's restricted encryption key, rather than a
+bigram approximation. Custom scorers use their public scoring method.
+
+The sweep tries divisors of the letter count first, then the remaining
+sizes, with each group in increasing order. A ragged message still gets all
+sizes if time permits. `periods_tried` records the actual order and
+`time_budget_hit` records a sweep stopped by the clock between sizes.
+The standalone default ceiling remains 12; the pipeline ceilings are 8, 20
+and 30 for fast, normal and deep. Sizes through eight remain exhaustive at
+the proposal step; larger sizes use 24 random restarts plus the identity
+start, followed by the same full-score polish.
+
+MEASURED on 2,000 letters: fast 1.2s, normal 7.9s, deep 44.7s; on 3,500
+letters, fast 1.3s. These are permutation-stage timings, not whole-pipeline
+times. An isolated recheck with the local letters corpus and a fixed random
+24-letter key (seed 7) took 0.86/7.04/34.42s on 2,000 letters and 1.30s for
+fast on 3,500 letters. A standalone search through size 24 on 2,112 letters
+recovered the exact key in 13.94s.
+
+Raising the ceiling alone did not make deep reach long keys under a
+shared budget: weight 2 allocated only 3.57s of a 270s run, and a synthetic
+2,112-letter message stopped at size 22 with a period-12 partial labelled
+`promising`. Size 24 had never been tried, so ranking could not recover it.
+Deep now gives this stage weight 30; fast and normal retain weight 2.
+Pipeline candidates record `stage_time_budget` alongside the solver's search
+diagnostics, so the allocation and the actual coverage can be compared.
+On the same 2,112-letter fixture (the local letters corpus and a read order
+from `random.Random(7).sample(range(24), 24)`), the fixed full pipeline gave
+permutation 45.86s. It completed every size through 30 in 37.80s without
+hitting its budget and returned the exact key and plaintext at rank 1,
+labelled `strong`; the period-12 partial ranked second. The whole pipeline
+took 270.04s because it continued searching competing families. The budget
+regression, with those other solver bodies stubbed but all stage weights
+retained, failed before the fix and passed in 55.8s with another random key.
+
 ### Two details that are easy to get wrong
 
 **The ragged last block is permuted too.** A short final block takes the
@@ -1744,8 +1790,9 @@ catches. A cap this solver does not need would only weaken correct answers.
 ### Honest limitations
 
 - Block sizes above eight are searched, not enumerated, and say so.
-- A permutation cipher whose block size exceeds the ceiling (12 by default)
-  is not attempted at all.
+- A permutation cipher whose block size exceeds the ceiling (12 by default,
+  or 8/20/30 in the pipeline) is not attempted at all. A time budget can
+  truncate that sweep further; consult `periods_tried`.
 - Two blocks of text is the minimum; below that the adjacency sums have
   nothing to work with and the solver returns nothing rather than guessing.
 

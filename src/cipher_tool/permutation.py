@@ -76,9 +76,9 @@ from .columnar import (
 from .normalize import NormalizedText, group_text, letters_only, normalize
 from .scoring import EnglishScorer, annotate, default_scorer
 
-#: Largest block size :func:`solve` tries when it is not told one. Keys in
-#: this competition are keywords, so a block is a word length; twelve covers
-#: every one that has ever been set and leaves headroom.
+#: Largest block size :func:`solve` tries when it is not told one. The auto
+#: pipeline sets its own ceilings (8, 20, 30); standalone callers can raise
+#: max_period or pin period when attacking longer keys.
 DEFAULT_MAX_PERIOD = 12
 
 #: Block sizes up to this are enumerated exhaustively -- every permutation,
@@ -313,6 +313,126 @@ def _order_from_arrangement(arrangement: Sequence[int]) -> tuple[int, ...]:
     return tuple(order)
 
 
+def _polish_scorer(letters: str, size: int, engine: EnglishScorer):
+    """Cache the full Markov objective by four-stripe windows.
+
+    Moving a segment preserves most quadgrams. Sum each distinct window
+    down the blocks once, including the three windows crossing each block
+    boundary. The initial short contexts and the ragged tail are scored
+    separately, so this is the full objective, not the adjacency proxy.
+    Custom scorers use their public score method without this optimisation.
+    """
+    if type(engine) is not EnglishScorer or size < 4:
+        return lambda arrangement: engine.score(
+            decrypt(letters, _order_from_arrangement(arrangement)))
+
+    values = engine.encode(letters)
+    blocks, tail_size = divmod(len(values), size)
+    table = engine.table()
+    windows: dict[tuple[int, ...], float] = {}
+    prefixes: dict[tuple[int, ...], float] = {}
+    tails: dict[tuple[int, ...], float] = {}
+
+    def window(offsets: tuple[int, ...]) -> float:
+        if offsets not in windows:
+            a, b, c, d = offsets
+            count = blocks - (max(offsets) >= size)
+            windows[offsets] = sum(
+                table[((values[start + a] * 26 + values[start + b]) * 26
+                       + values[start + c]) * 26 + values[start + d]]
+                for start in range(0, count * size, size)
+            )
+        return windows[offsets]
+
+    def score(arrangement: tuple[int, ...]) -> float:
+        prefix = arrangement[:3]
+        if prefix not in prefixes:
+            prefixes[prefix] = engine.score_values([values[i] for i in prefix])
+        total = prefixes[prefix]
+        for start in range(size - 3):
+            total += window(arrangement[start:start + 4])
+        for count in (1, 2, 3):
+            offsets = arrangement[-count:] + tuple(
+                size + i for i in arrangement[:4 - count])
+            total += window(offsets)
+        if tail_size:
+            # The short final block restricts the ENCRYPTION key, not the
+            # stripe arrangement. Rebuild that inverse just as decrypt does.
+            partial = _partial_order(_order_from_arrangement(arrangement),
+                                     tail_size)
+            tail_key = arrangement[-3:] + partial
+            if tail_key not in tails:
+                context = [values[(blocks - 1) * size + i]
+                           for i in arrangement[-3:]]
+                restored = [0] * tail_size
+                for position, offset in enumerate(partial):
+                    restored[offset] = values[blocks * size + position]
+                tails[tail_key] = (engine.score_values(context + restored)
+                                   - engine.score_values(context))
+            total += tails[tail_key]
+        return total
+
+    return score
+
+
+def _polish(
+    letters: str,
+    arrangement: tuple[int, ...],
+    engine: EnglishScorer,
+    score_arrangement,
+) -> tuple[tuple[int, ...], int, str, int]:
+    """Choose the block start, then settle segment moves and swaps.
+
+    Both key conventions are checked: rotating the stripe arrangement moves
+    the plaintext block boundary; rotating the inverse read order moves the
+    ciphertext offsets. Every rotation is decrypted and scored in full.
+    Strict improvements and a fixed traversal make ties deterministic.
+    """
+    size = len(arrangement)
+    order = _order_from_arrangement(arrangement)
+    best = engine.score(decrypt(letters, order))
+    settled = arrangement
+    rotation, basis = 0, "arrangement"
+    for kind in ("arrangement", "read_order"):
+        original = arrangement if kind == "arrangement" else order
+        for shift in range(size):
+            rotated = original[shift:] + original[:shift]
+            trial_order = (_order_from_arrangement(rotated)
+                           if kind == "arrangement" else rotated)
+            score = engine.score(decrypt(letters, trial_order))
+            if score > best + 1e-9:
+                best = score
+                settled = _order_from_arrangement(trial_order)
+                rotation, basis = shift, kind
+
+    moves = 0
+    while True:
+        proposal = settled
+        # Three cuts exchange adjacent segments, expressing every possible
+        # lift-and-reinsert without trying the same move in both directions.
+        for first in range(size - 1):
+            for middle in range(first + 1, size):
+                for last in range(middle + 1, size + 1):
+                    trial = (settled[:first] + settled[middle:last]
+                             + settled[first:middle] + settled[last:])
+                    score = score_arrangement(trial)
+                    if score > best + 1e-9:
+                        best, proposal = score, trial
+        for first in range(size - 2):
+            for second in range(first + 2, size):
+                trial_list = list(settled)
+                trial_list[first], trial_list[second] = (
+                    trial_list[second], trial_list[first])
+                trial = tuple(trial_list)
+                score = score_arrangement(trial)
+                if score > best + 1e-9:
+                    best, proposal = score, trial
+        if proposal == settled:
+            return _order_from_arrangement(settled), rotation, basis, moves
+        settled = proposal
+        moves += 1
+
+
 def solve(
     source: str | NormalizedText,
     *,
@@ -328,7 +448,8 @@ def solve(
         Attack this block size only.
     max_period:
         Otherwise try every size from 2 up to this
-        (default :data:`DEFAULT_MAX_PERIOD`).
+        (default :data:`DEFAULT_MAX_PERIOD`), divisors of the letter count
+        first, then the remaining sizes, each group in increasing order.
     max_exhaustive:
         Sizes up to this enumerate every permutation
         (default :data:`DEFAULT_MAX_EXHAUSTIVE`).
@@ -369,7 +490,8 @@ def solve(
     if period is not None:
         periods = [_option_int(period, "period", MIN_PERIOD, MIN_PERIOD)]
     else:
-        periods = list(range(MIN_PERIOD, max_period + 1))
+        periods = sorted(range(MIN_PERIOD, max_period + 1),
+                         key=lambda size: (len(letters) % size != 0, size))
 
     # Two whole blocks is the least that gives the adjacency sums anything to
     # work with; below that the answer would be a guess dressed as a search.
@@ -392,14 +514,21 @@ def solve(
         stripes = _stripes(values, size)
         side, wrap = adjacency_matrices(stripes, bigrams)
         exhaustive = size <= max_exhaustive
+        score_arrangement = _polish_scorer(letters, size, engine)
         for adjacency, arrangement in _propose(
             stripes, side, wrap, exhaustive=exhaustive, keep=refine,
             restarts=restarts, rng=rng,
         ):
-            order = _order_from_arrangement(arrangement)
+            order, rotation, basis, moves = _polish(
+                letters, arrangement, engine, score_arrangement)
+            if order == tuple(range(size)):
+                continue
             plaintext = decrypt(letters, order)
             diagnostics: dict[str, Any] = {
                 "period": size,
+                "rotation": rotation,
+                "rotation_basis": basis,
+                "polish_moves": moves,
                 "read_order": ",".join(str(value) for value in order),
                 "blocks": len(letters) // size,
                 "ragged_tail": len(letters) % size,
@@ -422,7 +551,7 @@ def solve(
                 )
             )
 
-    summary = f"{tried[0]}-{tried[-1]}" if tried else "none"
+    summary = ",".join(str(size) for size in tried) if tried else "none"
     for candidate in results.ranked():
         candidate.diagnostics["periods_tried"] = summary
         if budget_hit:

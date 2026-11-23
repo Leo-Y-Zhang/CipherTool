@@ -21,6 +21,7 @@ from __future__ import annotations
 import random
 import time
 import unittest
+from unittest.mock import patch
 
 from cipher_tool import columnar, permutation
 from cipher_tool.normalize import letters_only
@@ -246,6 +247,105 @@ class TestTheAttack(unittest.TestCase):
         self.assertIn("periods_tried", best.diagnostics)
         self.assertIn("read_order", best.diagnostics)
         self.assertIn("exhaustive", best.diagnostics["search"])
+
+
+class TestLongBlocks(unittest.TestCase):
+    """Regression fixtures from the local corpus, with fixed random keys."""
+
+    def check_period(self, period: int, seed: int, plaintext: str = "") -> None:
+        plaintext = plaintext or letters_only(CORPUS)[:2400 // period * period]
+        order = tuple(random.Random(seed).sample(range(period), period))
+        ciphertext = permutation.encrypt(plaintext, order)
+        best = permutation.solve(ciphertext, period=period, seed=1).best()
+        self.assertEqual(best.plaintext, plaintext)
+        self.assertEqual(best.diagnostics["read_order"],
+                         ",".join(map(str, order)))
+
+    def test_period_13(self) -> None:
+        corpus = (DATA_DIR / "corpus_01_narrative.txt").read_text(encoding="utf-8")
+        self.check_period(13, 2, letters_only(corpus)[2000:4002])
+
+    def test_period_16(self) -> None:
+        self.check_period(16, 1)
+
+    def test_period_20(self) -> None:
+        self.check_period(20, 1)
+
+    def test_period_24(self) -> None:
+        self.check_period(24, 2)
+
+    def test_period_30(self) -> None:
+        self.check_period(30, 1)
+
+    def test_a_rotated_proposal_is_repaired(self) -> None:
+        plaintext = letters_only(CORPUS)[:2112]
+        order = tuple(random.Random(7).sample(range(24), 24))
+        arrangement = permutation._order_from_arrangement(order)
+        rotated = arrangement[5:] + arrangement[:5]
+        ciphertext = permutation.encrypt(plaintext, order)
+        # Feed exactly the wrong starting point from the adjacency search.
+        with patch.object(permutation, "_propose", return_value=[(0, rotated)]):
+            best = permutation.solve(ciphertext, period=24, seed=1).best()
+        self.assertEqual(best.plaintext, plaintext)
+        self.assertEqual(best.diagnostics["rotation"], 19)
+        self.assertEqual(best.diagnostics["polish_moves"], 0)
+
+    def test_segment_and_swap_errors_are_repaired_with_a_ragged_tail(self) -> None:
+        plaintext = letters_only(CORPUS)[:2117]
+        order = tuple(random.Random(7).sample(range(24), 24))
+        arrangement = list(permutation._order_from_arrangement(order))
+        arrangement = arrangement[:3] + arrangement[8:15] + arrangement[3:8] + arrangement[15:]
+        arrangement[19], arrangement[22] = arrangement[22], arrangement[19]
+        ciphertext = permutation.encrypt(plaintext, order)
+        with patch.object(permutation, "_propose", return_value=[(0, tuple(arrangement))]):
+            best = permutation.solve(ciphertext, period=24, seed=1).best()
+        self.assertEqual(best.plaintext, plaintext)
+        self.assertGreaterEqual(best.diagnostics["polish_moves"], 2)
+        self.assertEqual(best.diagnostics["read_order"], ",".join(map(str, order)))
+
+    def test_a_rotated_read_order_is_repaired(self) -> None:
+        plaintext = letters_only(CORPUS)[:2112]
+        order = tuple(random.Random(7).sample(range(24), 24))
+        rotated = order[5:] + order[:5]
+        proposal = permutation._order_from_arrangement(rotated)
+        ciphertext = permutation.encrypt(plaintext, order)
+        with patch.object(permutation, "_propose", return_value=[(0, proposal)]):
+            best = permutation.solve(ciphertext, period=24, seed=1).best()
+        self.assertEqual(best.plaintext, plaintext)
+        self.assertEqual(best.diagnostics["rotation"], 19)
+        self.assertEqual(best.diagnostics["rotation_basis"], "read_order")
+        self.assertEqual(best.diagnostics["polish_moves"], 0)
+
+    def test_cached_polish_objective_matches_full_scoring(self) -> None:
+        engine = default_scorer()
+        generator = random.Random(9)
+        for size in (2, 3, 4, 8, 13, 16, 20, 24, 30):
+            for tail in range(size):
+                letters = letters_only(CORPUS)[:size * 7 + tail]
+                score = permutation._polish_scorer(letters, size, engine)
+                for _ in range(4):
+                    arrangement = tuple(generator.sample(range(size), size))
+                    order = permutation._order_from_arrangement(arrangement)
+                    with self.subTest(size=size, tail=tail):
+                        self.assertAlmostEqual(
+                            score(arrangement),
+                            engine.score(permutation.decrypt(letters, order)),
+                            places=8,
+                        )
+
+    def test_divisors_are_searched_first(self) -> None:
+        tried = []
+
+        def propose(stripes, *args, **kwargs):
+            tried.append(len(stripes))
+            return []
+
+        with patch.object(permutation, "_propose", side_effect=propose):
+            permutation.solve(letters_only(CORPUS)[:2112], max_period=24,
+                              seed=1)
+        divisors = [n for n in range(2, 25) if 2112 % n == 0]
+        others = [n for n in range(2, 25) if 2112 % n != 0]
+        self.assertEqual(tried, divisors + others)
 
 
 class TestPipeline(unittest.TestCase):
