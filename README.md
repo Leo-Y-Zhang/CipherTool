@@ -79,7 +79,7 @@ prints the plaintext:
 WKHUH LVQRW KLQJV RIDWD OWRFK
 DUDFW HUDVK DOIIL QLVKH GWDVN
 
-  Read 50 letters. Working...
+  Read 50 symbols: 50 letters. Working...
 
 ========================================================================
 BEST ANSWER  (scores as clear English)
@@ -336,7 +336,8 @@ human decides. Nothing here submits anything to anyone.
 
 ## Commands
 
-Every command takes a file, or `--text "..."`, or `-` for standard input.
+Every command except `model` and `paste` takes a file, or `--text "..."`, or
+`-` for standard input.
 
 ### Inspection
 
@@ -368,7 +369,7 @@ Every command takes a file, or `--text "..."`, or `-` for standard input.
 
 | Command | Notes |
 |---|---|
-| `railfence FILE [--rails N] [--offset N]` | exhaustive over rail counts |
+| `railfence FILE [--rails N] [--offset N]` | exhaustive over rail counts up to 20 |
 | `columnar FILE [--key WORD] [--max-key-length N] [--complete]` | |
 | `permutation FILE [--key WORD] [--period N]` | one fixed shuffle inside every block |
 | `stacked FILE [--width N] [--period N]` | a polyalphabetic with a transposition laid over it |
@@ -378,7 +379,7 @@ Every command takes a file, or `--text "..."`, or `-` for standard input.
 
 | Command | Notes |
 |---|---|
-| `polybius FILE [--key WORD] [--square LETTERS]` | 5x5 and 6x6, configurable labels |
+| `polybius FILE [--key WORD] [--square LETTERS]` | 5x5 and 6x6; the search reads the labels from the ciphertext |
 | `homophonic FILE [--slots uniform] [--unit 2]` | more symbols than letters; refuses below 6 units per symbol |
 | `bifid FILE [--key WORD] [--period N]` | period variant supported |
 | `playfair FILE [--key WORD] [--check]` | `--check` validates formatting only |
@@ -453,8 +454,8 @@ each contiguous block -- a statistic the outer transposition cannot disturb
 **Encodings** (not ciphers) -- hexadecimal, binary, decimal ASCII, Base64,
 Morse.
 
-Each has encryption, decryption and an attack. Each attack returns ranked
-candidates with evidence.
+Each has encryption, decryption and an attack, except stacked ciphers, which
+have an attack only. Each attack returns ranked candidates with evidence.
 
 ## How the cryptanalysis works
 
@@ -513,8 +514,9 @@ exhaustive permutation search where feasible and a greedy column-pairing
 chain beyond that. Block permutation enumerates every permutation of block
 sizes up to eight, which is affordable because the factorial is paid against
 an eight-by-eight matrix of letter-pair statistics rather than against the
-message. Caesar, Atbash, affine and rail fence are searched exhaustively,
-because their key spaces are tiny.
+message; larger blocks are searched by restarts and hill climbing instead.
+Caesar, Atbash, affine and rail fence (up to 20 rails) are searched
+exhaustively, because their key spaces are tiny.
 
 ## What we wrote ourselves
 
@@ -570,7 +572,8 @@ Candidate 1
   strongest label is `strong`. There is deliberately no `solved`.
 - `Score` is a log probability. Compare it only between candidates over the
   *same* text. The per-letter figure is the comparable one: about `-0.90` for
-  real English, about `-2.75` for anything wrong.
+  real English, about `-2.75` for random letters, and in between for a near
+  miss or a wrong transposition.
 - If the top two candidates are close, the report says so explicitly. That is
   the case where the number tells you nothing and you must read the text.
 - `auto` lists every stage it ran **and every stage it skipped**, so the
@@ -642,6 +645,10 @@ Stated plainly, because a tool that hides its weaknesses wastes your time.
   more ciphertext than a competition round usually provides.
 - **Columnar with more than about 9 columns** falls back from exhaustive
   search to a greedy heuristic, which can miss.
+- **Block permutations above eight positions are searched, not enumerated**,
+  and a block larger than the ceiling is not tried at all: 12 for
+  `permutation` (raise it with `--max-period`), and 8, 20 and 30 for the
+  `fast`, `normal` and `deep` pipeline.
 - **Our language model is modest.** 102,000 letters of training text, against
   the hundreds of millions behind published frequency tables. It separates
   English from noise decisively, which is what search needs, but it is
@@ -663,9 +670,11 @@ Stated plainly, because a tool that hides its weaknesses wastes your time.
 
 Forty ciphertexts from the published National Cipher Challenge archive -- the
 2016, 2017, 2018, 2023 and 2024 seasons, whose challenge pages are public --
-run exactly as the paste screen runs them: start at `fast`, climb while the
-reading is not `strong`, stop at `deep`, and set no overall time limit,
-because the paste screen sets none either.
+run exactly as the paste screen ran them at the time: start at `fast`, climb
+while the reading is not `strong`, stop at `deep`, and set no overall time
+limit, because the paste screen then set none. It now stops after 120
+seconds per message by default, so the slowest of these runs would need a
+larger `paste --max-time`.
 
 Twenty-two of the forty have their plaintext published underneath them, so
 they can be **graded** rather than eyeballed:
@@ -719,9 +728,9 @@ because a measuring stick is the last thing anyone checks:
   their length. Both are wrong -- the pages publish answers for parts whose
   ciphertext is an image -- and the first graded a perfect reading at 7.9%.
   Answers are now identified by content.
-- The harness passed a whole-pipeline time limit the paste screen never sets,
-  which starved one search of nine tenths of its budget and cost a challenge
-  that the real tool solves in ninety seconds.
+- The harness passed a whole-pipeline time limit the paste screen then did
+  not set, which starved one search of nine tenths of its budget and cost a
+  challenge that the real tool solves in ninety seconds.
 
 **Check your own measuring stick before you file a defect against the thing
 it is measuring.**
@@ -762,7 +771,8 @@ CipherTool/
     LICENSE                   proprietary source-available
     pyproject.toml            no runtime dependencies, deliberately
     run_tests.py              stdlib-only test runner
-    .github/workflows/ci.yml  tests on Windows, Mac and Linux on every push
+    .github/workflows/ci.yml  tests on Windows, Mac and Linux, on pushes to
+                              main and on pull requests
     src/cipher_tool/
         cli.py                the command line and interactive shell
         auto.py               the cross-solver pipeline
@@ -777,15 +787,16 @@ CipherTool/
         caesar.py atbash.py affine.py keyword_cipher.py substitution.py
         vigenere.py beaufort.py autokey.py
         rail_fence.py columnar.py transposition.py permutation.py
-        polybius.py bifid.py playfair.py foursquare.py hill.py homophonic.py
-        adfgvx.py nihilist.py crossed.py seriated.py
+        polybius.py bifid.py trifid.py playfair.py foursquare.py hill.py
+        homophonic.py adfgvx.py nihilist.py crossed.py seriated.py
         stacked.py            a polyalphabetic under a transposition
         unscramble.py         a substitution under a block permutation
         readable.py           spacing and capitals put back, for reading
         paired.py             recognises a paired-symbol alphabet
+        clipboard.py          copies the paste screen's answer
         encodings.py
         data/corpus_*.txt     our own English prose, the scoring corpus
-    tests/                    one test module per source module
+    tests/                    a test module for most source modules
 ```
 
 ---
