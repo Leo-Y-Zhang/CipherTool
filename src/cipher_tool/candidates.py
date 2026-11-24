@@ -236,6 +236,35 @@ class Candidate:
         return text[: width - 3] + "..."
 
 
+def ranking_key(candidate: Candidate) -> tuple[int, float, float]:
+    """Sort key for the candidate ranking, best first in ascending order.
+
+    1. The confidence label, ``strong`` before ``promising`` before ``weak``.
+    2. The per-letter score.
+    3. The total score.
+
+    A total score is a sum over letters, so it is only comparable between
+    readings of the same length. Ranking on it alone let any search that reads
+    the ciphertext as fewer letters win on short messages: Polybius and the
+    other fractionating families read two symbols as one letter and so halve
+    the total. MEASURED on the README's 50-letter Caesar example at --fast: a
+    25-letter Polybius reading scored -26.7 in total (-1.07 per letter,
+    `promising`) and ranked first, above the correct shift 3 at -49.9 (-1.00
+    per letter, `strong`, agreed by three attacks), and the paste screen
+    escalated to deep and printed the Polybius letters as its answer.
+
+    For two readings of the same length, the per-letter order IS the total
+    order, so within a label nothing changes there. The total is kept as the
+    last key for the rare pair whose totals differ by less than the division
+    can show; exact ties keep arrival order, because the sort is stable.
+    """
+    return (
+        CONFIDENCE_ORDER.index(candidate.confidence()),
+        -candidate.normalised_score,
+        -candidate.score,
+    )
+
+
 class CandidateSet:
     """An ordered collection of candidates, best first.
 
@@ -349,17 +378,17 @@ class CandidateSet:
     # -- reading -----------------------------------------------------------
 
     def ranked(self) -> list[Candidate]:
-        """All candidates, highest score first."""
-        return sorted(self._items, key=lambda c: c.score, reverse=True)
+        """All candidates, best first: see :func:`ranking_key`."""
+        return sorted(self._items, key=ranking_key)
 
     def top(self, count: int = 5) -> list[Candidate]:
-        """The *count* highest-scoring candidates."""
+        """The *count* best candidates, in :meth:`ranked` order."""
         if count <= 0:
             return []
         return self.ranked()[:count]
 
     def best(self) -> Candidate | None:
-        """The single highest-scoring candidate, or ``None`` if empty."""
+        """The first candidate in :meth:`ranked` order, or ``None``."""
         ranked = self.ranked()
         return ranked[0] if ranked else None
 
@@ -380,16 +409,33 @@ class CandidateSet:
         strongest. Agreement between methods is corroboration, not doubt:
         see :meth:`corroborations`.
 
-        Returns ``None`` when every candidate agrees, because then there is
-        no competing reading to measure against.
+        A reading of a DIFFERENT LENGTH with a weaker label is skipped as
+        well, because the ranking put the label first for exactly those and
+        their per-letter figures are not a photo finish. MEASURED on the
+        README example with seed 1: a 25-letter `promising` Polybius reading,
+        from a search with 22 free cells over 25 pairs, came within 0.07 per
+        letter of the 50-letter Caesar answer. Counted as a rival, it made the
+        paste screen warn that the search "has not singled this one out"
+        above a `strong` answer three attacks agreed on. A reading of the
+        same length is still compared whatever its label: a near-miss key is
+        exactly what this margin is for.
+
+        Returns ``None`` when every candidate agrees, or when the only
+        different readings are those skipped above, because then there is no
+        competing reading to measure against.
         """
         ranked = self.ranked()
         if not ranked:
             return None
         best = ranked[0]
+        label = best.confidence()
         for candidate in ranked[1:]:
-            if candidate.plaintext != best.plaintext:
-                return best.normalised_score - candidate.normalised_score
+            if candidate.plaintext == best.plaintext:
+                continue
+            if (len(candidate.plaintext) != len(best.plaintext)
+                    and candidate.confidence() != label):
+                continue
+            return best.normalised_score - candidate.normalised_score
         return None
 
     def corroborations(self) -> list[str]:

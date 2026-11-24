@@ -198,6 +198,40 @@ class TestPasteFlow(unittest.TestCase):
                          [40.0, 40.0])
 
 
+class TestTheReadmeExampleOnThePasteScreen(unittest.TestCase):
+    """README.md's paste-screen example, run for real rather than mocked.
+
+    It used to escalate to deep and then print a 25-letter Polybius reading
+    as the BEST ANSWER, because a reading half the length had the better
+    total score. Seed 1 is used because it is one where that Polybius
+    reading sits only 0.07 per letter behind the Caesar answer.
+    """
+
+    CIPHERTEXT = ("WKHUH LVQRW KLQJV RIDWD OWRFK\n"
+                  "DUDFW HUDVK DOIIL QLVKH GWDVN\n")
+    PLAINTEXT = "THEREISNOTHINGSOFATALTOCHARACTERASHALFFINISHEDTASK"
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        output = io.StringIO()
+        with patch("sys.stdin", io.StringIO(cls.CIPHERTEXT + "\n\n")), \
+                contextlib.redirect_stdout(output):
+            cli.main(["paste", "--no-copy", "--seed", "1"])
+        cls.output = output.getvalue()
+
+    def test_it_answers_at_fast_with_the_caesar_reading(self) -> None:
+        self.assertNotIn("Searching harder", self.output)
+        self.assertIn("BEST ANSWER  (scores as clear English)", self.output)
+        self.assertIn("\n" + self.PLAINTEXT + "\n", self.output)
+        self.assertIn("  Cipher      : Caesar shift", self.output)
+
+    def test_a_shorter_weaker_reading_is_not_called_a_photo_finish(self) -> None:
+        # The answer is `strong` and three attacks agree on it. A 25-letter
+        # `promising` reading from a search with 22 free cells is not a rival
+        # that makes the search "not single this one out".
+        self.assertNotIn("WARNING", self.output)
+
+
 class TestSymbolBudgets(unittest.TestCase):
     def test_zero_remaining_budget_starts_no_symbol_solver(self) -> None:
         args = argparse.Namespace(max_time=0.0, seed=1)

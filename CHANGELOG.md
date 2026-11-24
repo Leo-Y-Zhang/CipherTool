@@ -176,6 +176,26 @@ Add entries here as you work. Suggested headings: `Added`, `Changed`,
 
 ### Fixed
 
+- **The README's own example ranked a wrong answer first.** `auto --fast` on
+  the 50-letter Caesar ciphertext in the five-minute tour put a 25-letter
+  Polybius reading at the top (-26.7 in total, -1.07 per letter, `promising`)
+  above the correct shift 3 (-49.9, -1.00 per letter, `strong`, agreed by
+  three attacks), with any seed. The paste screen then escalated to deep, took
+  40 seconds and printed the Polybius letters as its BEST ANSWER.
+  `CandidateSet.ranked()` sorted on the total score, which is a sum over
+  letters, so any search that reads the ciphertext as fewer letters won on a
+  short message. The ranking is now the confidence label first, then the
+  score per letter, then the total; between readings of the same length and
+  label the order is exactly what it was. The label has to come first: on one
+  run the Polybius reading scored -0.995 per letter against the Caesar
+  answer's -0.998. `best()`, `top()` and everything built on them, including
+  the paste screen, follow the same order. `score_gap()` no longer counts a
+  reading of a different length with a weaker label as a rival, because the
+  label already separated them; without that the paste screen warned that
+  the search "has not singled this one out" above the `strong` Caesar answer.
+  Readings of the same length are still compared whatever their label.
+  Confidence thresholds and scores are unchanged.
+
 - **Deep auto search now budgets for long block permutations.** A synthetic
   2,112-letter message under a random 24-letter key received only 3.57s of a
   270s run: the permutation sweep stopped at size 22 and offered a period-12

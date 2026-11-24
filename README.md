@@ -478,7 +478,9 @@ look like English?". We answer that two ways at once:
 Two signals, because either alone can be fooled. Letter statistics cannot
 tell true English from a near-miss key; word coverage cannot tell English
 from a text stuffed with short accidental words. A candidate is only labelled
-`strong` when both agree.
+`strong` when both agree. Candidates are listed by that label first and then
+by score per letter, so a reading that is shorter because the cipher packs two
+symbols into each letter cannot win on its smaller total.
 
 ### Diagnosis before attack
 
