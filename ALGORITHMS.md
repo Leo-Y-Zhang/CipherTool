@@ -356,10 +356,27 @@ independently. For a hill climber with random restarts that count is real
 evidence: twenty restarts converging on one key is worth far more than one
 restart finding it once.
 
-`score_gap()` reports the per-letter margin between the best and second-best
-candidate. A large gap means the search found one clearly better answer; a
-tiny gap means several keys explain the ciphertext about equally well, which
-is exactly when a human must look at the text rather than the number.
+**The order** is the confidence label first (`strong`, `promising`, `weak`,
+`unlikely`), then the score per letter, then the total score. A total is a
+sum over letters, so it only compares readings of the same length, and for
+those the per-letter order is the total order anyway. Ranking on the total
+alone let any search that reads the ciphertext as fewer letters win on a
+short message, and the README's own example did: on its 50-letter Caesar
+ciphertext at `--fast`, a 25-letter Polybius reading (-26.7 in total, -1.07
+per letter, `promising`) ranked above the correct shift (-49.9, -1.00 per
+letter, `strong`, agreed by three attacks). The label goes before the
+per-letter score because a short reading from a search with a lot of key
+freedom can match English per letter: on one run the same Polybius search
+scored -0.995 per letter against the Caesar answer's -0.998.
+
+`score_gap()` reports the per-letter margin between the best candidate and
+the best one with a different plaintext. A large gap means the search found
+one clearly better answer; a tiny gap means several keys explain the
+ciphertext about equally well, which is exactly when a human must look at
+the text rather than the number. A reading of a different length with a
+weaker label is not counted as a rival, because the label already separated
+them; a reading of the same length counts whatever its label, since a
+near-miss key is what the margin is for.
 
 Confidence labels are deliberately coarse and pessimistic. `strong` requires
 **both** a good n-gram score and good word coverage, because either alone can

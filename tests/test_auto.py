@@ -171,6 +171,32 @@ class TestPipeline(unittest.TestCase):
         self.assertTrue(result.candidates.ranked())
 
 
+class TestTheReadmeExampleIsRankedFirst(unittest.TestCase):
+    """The headline example in README.md, exactly as printed there.
+
+    `auto --fast` used to put a 25-letter Polybius reading first (about -27
+    in total, -1.07 per letter, `promising`) above the correct Caesar shift 3
+    (-49.9 in total, -1.00 per letter, `strong`). The ranking compared total
+    scores, and a search that halves the plaintext halves its total, so it
+    won on a short message while losing on every per-letter measure.
+    """
+
+    CIPHERTEXT = ("WKHUH LVQRW KLQJV RIDWD OWRFK "
+                  "DUDFW HUDVK DOIIL QLVKH GWDVN")
+    PLAINTEXT = "THEREISNOTHINGSOFATALTOCHARACTERASHALFFINISHEDTASK"
+
+    def test_the_caesar_reading_ranks_first_at_fast(self) -> None:
+        for seed in (1, 2, 3):
+            with self.subTest(seed=seed):
+                result = auto_solve(self.CIPHERTEXT, effort="fast", top=10,
+                                    seed=seed)
+                best = result.candidates.ranked()[0]
+                self.assertEqual(best.plaintext, self.PLAINTEXT,
+                                 f"{best.method}: {best.plaintext}")
+                self.assertEqual(best.method, "Caesar shift")
+                self.assertEqual(best.confidence(), "strong")
+
+
 class TestTimeBudget(unittest.TestCase):
     def test_a_tiny_budget_skips_stages_and_says_so(self) -> None:
         result = auto_solve(sample_plaintext(600), effort="deep", top=3,

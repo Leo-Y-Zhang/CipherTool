@@ -170,6 +170,124 @@ class TestCandidateSet(unittest.TestCase):
         self.assertAlmostEqual(candidates.score_gap(), 1.0)
 
 
+def rotation(steps: int) -> str:
+    """SPREAD rotated: same length and letters, a different reading."""
+    return SPREAD[steps:] + SPREAD[:steps]
+
+
+class TestRankingAcrossLengths(unittest.TestCase):
+    """Readings of different lengths are compared fairly.
+
+    A total score grows with the number of letters scored, so a search that
+    reads the ciphertext as half as many letters (Polybius, Bifid and the
+    other fractionating families) used to win on total while losing on every
+    per-letter measure. The README's own example did exactly that.
+    """
+
+    LONG = SPREAD          # 76 letters
+    SHORT = SPREAD[:38]    # half of it
+
+    def test_a_shorter_reading_does_not_win_on_total_alone(self) -> None:
+        # Shorter: better total, worse per letter, weaker label.
+        long = make(key="long", score=-76.0, plaintext=self.LONG,
+                    word_coverage=0.9)
+        short = make(method="Polybius", key="short", score=-41.8,
+                     plaintext=self.SHORT, word_coverage=0.5)
+        self.assertEqual((long.confidence(), short.confidence()),
+                         ("strong", "promising"))
+        self.assertGreater(short.score, long.score)
+        candidates = CandidateSet([short, long])
+        self.assertEqual([c.key for c in candidates.ranked()],
+                         ["long", "short"])
+        self.assertEqual(candidates.best().key, "long")
+        self.assertEqual([c.key for c in candidates.top(1)], ["long"])
+
+    def test_within_a_label_per_letter_score_decides(self) -> None:
+        long = make(key="long", score=-76.0, plaintext=self.LONG,
+                    word_coverage=0.9)
+        short = make(method="Polybius", key="short", score=-41.0,
+                     plaintext=self.SHORT, word_coverage=0.9)
+        self.assertEqual((long.confidence(), short.confidence()),
+                         ("strong", "strong"))
+        self.assertGreater(short.score, long.score)
+        self.assertGreater(long.normalised_score, short.normalised_score)
+        candidates = CandidateSet([short, long])
+        self.assertEqual([c.key for c in candidates.ranked()],
+                         ["long", "short"])
+
+    def test_the_label_comes_before_the_per_letter_score(self) -> None:
+        # The shorter one is better per letter, but fails the coverage test
+        # that `strong` needs, so it does not go above a `strong` reading.
+        long = make(key="long", score=-83.6, plaintext=self.LONG,
+                    word_coverage=0.9)
+        short = make(method="Polybius", key="short", score=-38.0,
+                     plaintext=self.SHORT, word_coverage=0.5)
+        self.assertEqual((long.confidence(), short.confidence()),
+                         ("strong", "promising"))
+        self.assertGreater(short.normalised_score, long.normalised_score)
+        candidates = CandidateSet([short, long])
+        self.assertEqual([c.key for c in candidates.ranked()],
+                         ["long", "short"])
+
+    def test_equal_lengths_keep_the_total_score_order(self) -> None:
+        # Same length and label: exactly the old order, highest total first,
+        # exact ties in arrival order. Two of these totals are a single float
+        # step apart and give the SAME per-letter score, so a ranking that
+        # looked only at the per-letter figure would leave them in arrival
+        # order rather than total order.
+        nearly = -89.99999999999999
+        self.assertNotEqual(nearly, -90.0)
+        self.assertEqual(nearly / len(SPREAD), -90.0 / len(SPREAD))
+        arrivals = [
+            ("e", -110.0, 5), ("c", -90.0, 3), ("a", -88.0, 1),
+            ("d1", -95.0, 4), ("b", nearly, 2), ("d2", -95.0, 6),
+        ]
+        candidates = CandidateSet(
+            make(key=key, score=score, plaintext=rotation(steps),
+                 word_coverage=0.9)
+            for key, score, steps in arrivals
+        )
+        self.assertEqual({c.confidence() for c in candidates.ranked()},
+                         {"promising"})
+        self.assertEqual([c.key for c in candidates.ranked()],
+                         ["a", "b", "c", "d1", "d2", "e"])
+
+    def test_score_gap_skips_a_shorter_reading_the_label_already_separated(
+        self,
+    ) -> None:
+        best = make(key="best", score=-76.0, plaintext=self.LONG,
+                    word_coverage=0.9)
+        short = make(method="Polybius", key="short", score=-38.95,
+                     plaintext=self.SHORT, word_coverage=0.5)
+        rival = make(method="Substitution", key="rival", score=-114.0,
+                     plaintext=rotation(9), word_coverage=0.5)
+        self.assertEqual(short.confidence(), "promising")
+        candidates = CandidateSet([short, best, rival])
+        self.assertAlmostEqual(candidates.score_gap(), 0.5)
+        self.assertIsNone(CandidateSet([short, best]).score_gap())
+
+    def test_score_gap_still_counts_an_equal_length_weaker_reading(self) -> None:
+        # A near-miss key reads the same number of letters, and how close it
+        # comes per letter is exactly what the gap is for.
+        best = make(key="best", score=-76.0, plaintext=self.LONG,
+                    word_coverage=0.9)
+        near_miss = make(key="near", score=-79.8, plaintext=rotation(9),
+                         word_coverage=0.5)
+        self.assertEqual(near_miss.confidence(), "promising")
+        self.assertAlmostEqual(CandidateSet([near_miss, best]).score_gap(),
+                               0.05)
+
+    def test_score_gap_still_counts_a_shorter_reading_with_the_same_label(
+        self,
+    ) -> None:
+        best = make(key="best", score=-76.0, plaintext=self.LONG,
+                    word_coverage=0.9)
+        short = make(method="Polybius", key="short", score=-39.9,
+                     plaintext=self.SHORT, word_coverage=0.9)
+        self.assertEqual(short.confidence(), "strong")
+        self.assertAlmostEqual(CandidateSet([short, best]).score_gap(), 0.05)
+
+
 class TestRendering(unittest.TestCase):
     def test_single_candidate_shows_the_required_fields(self) -> None:
         text = render_candidate(make(normalised_score=-0.9, word_coverage=0.9), 1)

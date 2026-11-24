@@ -897,7 +897,7 @@ def _add_reversed_readings(
     thought to read it the other way round.
 
     The reversed reading is ADDED rather than substituted, so both are in
-    the ranking and the score decides. A margin keeps it quiet: English read
+    the ranking and the ranking decides. A margin keeps it quiet: English read
     backwards still scores far worse than English, so a real reversal shows
     up as a large gap rather than a close call.
     """
