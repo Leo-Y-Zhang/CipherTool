@@ -5,15 +5,15 @@
 [![dependencies](https://img.shields.io/badge/dependencies-none-brightgreen)](pyproject.toml)
 [![licence](https://img.shields.io/badge/licence-proprietary%20source--available-lightgrey)](LICENSE)
 
-An offline classical cryptanalysis toolkit, written from scratch in pure
-Python for a school team entering the National Cipher Challenge.
+An offline classical cryptanalysis toolkit in pure Python, written from scratch
+for a school team entering the National Cipher Challenge.
 
-Every cipher and every attack in this repository was written by us, with AI
-assistance. There are no runtime dependencies, no third-party cryptanalysis
-code, and no network access of any kind. See [RULES_COMPLIANCE.md](RULES_COMPLIANCE.md).
+We wrote every cipher and attack here, with AI assistance. The toolkit has no
+runtime dependencies, uses no third-party cryptanalysis code and never touches
+the network. See [RULES_COMPLIANCE.md](RULES_COMPLIANCE.md).
 
-> **Competition use.** Check the current National Cipher Challenge rules before
-> using any tool in a live round.
+Before using any tool in a live round, check the current National Cipher
+Challenge rules.
 
 ---
 

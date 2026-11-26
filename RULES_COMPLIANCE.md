@@ -1,9 +1,8 @@
 # Competition rules compliance
 
-**This document is not a claim of approval.** It is a record of the design
-decisions we took to keep the toolkit inside the rules as we understand them,
-written so that a teacher, a judge or a teammate can check the claims for
-themselves.
+This document records the design decisions we took to keep the toolkit inside
+the rules as we understand them. It is not a claim of approval. A teacher, a
+judge or a teammate should be able to check each claim for themselves.
 
 ## Status of the rules check
 
@@ -12,7 +11,7 @@ themselves.
 | **Checked against** | the 2026 rules, read at `cipherchallenge.org/rules` |
 | **Sections 1 to 8 checked on** | 3 October 2026 (the 2026 challenge opened 8 October) |
 | **AI assistance section updated on** | 26 November 2026 |
-| **Outcome** | Sections 1 to 8 hold: no third-party solver, no external service, no competition ciphertext leaves the machine, no automatic submission. The toolkit was written with AI assistance, including parts of the code that deciphers: see [AI assistance](#ai-assistance). |
+| **Outcome** | Sections 1 to 8 hold. There is no third-party solver or external service, no competition ciphertext leaves the machine, and nothing is submitted automatically. AI helped write the toolkit, including parts of the deciphering code (see [AI assistance](#ai-assistance)). |
 
 **This status is dated on purpose.** It applies to the 2026 rules as
 published at that date and to the code as it stood then. If the rules are
@@ -32,21 +31,20 @@ The 2026 rules, read at `cipherchallenge.org/rules`:
 > can result in disqualification."
 
 Nothing in the toolkit came from the web, and it calls no AI service when it
-runs. It was written with AI assistance, and that assistance includes parts of
-the code that deciphers. On 3 October 2026 the AI-assisted commits up to that
-date had touched these files under `src/cipher_tool/`:
+runs. AI helped write it, including parts of the code that deciphers. By
+3 October 2026, AI-assisted commits had touched these files under
+`src/cipher_tool/`:
 
 | File | What it does | Does it decipher? |
 |---|---|---|
-| `statistics.py` | Index of Coincidence, Kasiski examination, chi-squared fitting | Yes -- every attack uses it |
-| `scoring.py` | the n-gram language model, its smoothing, word segmentation | Yes -- every attack uses it |
+| `statistics.py` | Index of Coincidence, Kasiski examination, chi-squared fitting | Yes, every attack uses it |
+| `scoring.py` | the n-gram language model, its smoothing, word segmentation | Yes, every attack uses it |
 | `auto.py` | the automatic solver that chooses and runs attacks | Yes |
 | `nihilist.py` | the Nihilist cipher solver | Yes |
 | `cli.py` | command line parsing and reporting | No |
 | `context.py` | validation of a user-supplied context field | No |
 
-Later work on the toolkit, including changes to its solvers, was also
-AI-assisted.
+AI also helped with later work, including changes to the solvers.
 
 Anyone using the toolkit in the competition should read the current rules for
 themselves and, if in doubt, ask the organisers.
