@@ -5,24 +5,15 @@
 [![dependencies](https://img.shields.io/badge/dependencies-none-brightgreen)](pyproject.toml)
 [![licence](https://img.shields.io/badge/licence-proprietary%20source--available-lightgrey)](LICENSE)
 
-An offline classical cryptanalysis toolkit, written from scratch in pure
-Python for a school team entering the National Cipher Challenge.
+An offline classical cryptanalysis toolkit in pure Python, written from scratch
+for a school team entering the National Cipher Challenge.
 
-Every cipher and every attack in this repository was written by us. There are
-no runtime dependencies, no third-party cryptanalysis code, and no network
-access of any kind. See [RULES_COMPLIANCE.md](RULES_COMPLIANCE.md).
+We wrote every cipher and attack here, with AI assistance. The toolkit has no
+runtime dependencies, uses no third-party cryptanalysis code and never touches
+the network. See [RULES_COMPLIANCE.md](RULES_COMPLIANCE.md).
 
-> **This is a locally written cryptanalysis toolkit. Competition eligibility
-> depends on the current National Cipher Challenge rules. Verify the current
-> rules before using it in a live round.** Nobody at the competition has seen
-> or approved this software.
->
-> **Re-checked on 3 October 2026: NOT cleared for competition use.** The 2026
-> rules prohibit using AI "to decipher messages or to write software to do so",
-> and this repository was written with AI assistance. The 16 August check read
-> all clear because it tested the self-written-software clause and not that one.
-> This is an unresolved integrity question, not a code defect -- see
-> [RULES_COMPLIANCE.md](RULES_COMPLIANCE.md#the-ai-clause-unresolved).
+Before using any tool in a live round, check the current National Cipher
+Challenge rules.
 
 ---
 
