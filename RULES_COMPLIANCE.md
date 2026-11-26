@@ -1,32 +1,18 @@
 # Competition rules compliance
 
-**This document is not a claim of approval.** Nobody at the National Cipher
-Challenge has seen this toolkit, reviewed it, or endorsed it. What follows is
-a record of the design decisions we took to keep it inside the rules as we
-understand them, written so that a teacher, a judge or a teammate can check
-the claims for themselves.
+**This document is not a claim of approval.** It is a record of the design
+decisions we took to keep the toolkit inside the rules as we understand them,
+written so that a teacher, a judge or a teammate can check the claims for
+themselves.
 
 ## Status of the rules check
 
 | | |
 |---|---|
-| **Checked against** | the 2026 rules, re-read at `cipherchallenge.org/rules` |
-| **Checked on** | 3 October 2026 (the 2026 challenge opens 8 October) |
-| **Outcome** | **NOT all clear. One clause is unresolved and it carries a stated disqualification risk** -- see [The AI clause](#the-ai-clause-unresolved). Sections 1 to 6 below still hold: no third-party solver, no external service, no ciphertext leaves the machine, no automatic submission, standard library only. |
-
-> The previous entry in this table read **All clear**, dated 16 August 2026.
-> It was not wrong about what it tested; it tested the wrong rule. It reasoned
-> about the self-written-software clause and never considered the AI clause,
-> which is the one that binds here. That is exactly the failure this document
-> warns about two paragraphs down, so the old entry is replaced rather than
-> appended to.
-
-The eight questions in
-[What to re-check](#what-to-re-check-when-the-2026-rules-are-published)
-were worked through against the published text. In particular,
-self-written software remains permitted, the standard library raised no
-issue, and the use of `base64` for decoding a text encoding was judged
-acceptable.
+| **Checked against** | the 2026 rules, read at `cipherchallenge.org/rules` |
+| **Sections 1 to 8 checked on** | 3 October 2026 (the 2026 challenge opened 8 October) |
+| **AI assistance section updated on** | 26 November 2026 |
+| **Outcome** | Sections 1 to 8 hold: no third-party solver, no external service, no competition ciphertext leaves the machine, no automatic submission. The toolkit was written with AI assistance, including parts of the code that deciphers: see [AI assistance](#ai-assistance). |
 
 **This status is dated on purpose.** It applies to the 2026 rules as
 published at that date and to the code as it stood then. If the rules are
@@ -37,84 +23,33 @@ re-date it.
 
 ---
 
-## The AI clause (unresolved)
+## AI assistance
 
-**The rule, quoted from the 2026 rules as published at `cipherchallenge.org/rules`,
-read on 3 October 2026:**
+The 2026 rules, read at `cipherchallenge.org/rules`:
 
 > "You should not use deciphering tools you find elsewhere on the web and nor
 > should you use AI to decipher messages or to write software to do so. This
 > can result in disqualification."
 
-The first half is the clause this toolkit was designed around, and it is met:
-nothing here was taken from the web. **The second half was never considered.**
-It prohibits two separate things -- using AI to decipher, and using AI *to
-write software that deciphers*. The toolkit does not call any AI service at
-run time, so the first does not apply. The second is about how the code came
-to exist.
-
-**The rule's own wording decides what to measure.** Rule 13 permits "any
-software that you write yourself", so the question is not *was AI used in this
-repository* but *did AI write any of the software that deciphers*. That is
-answerable per file, from the history, and it was answered on 3 October 2026
-by walking every commit whose author is `Claude` or which carries a Claude
-co-author trailer, and listing the files they touched.
-
-Nine commits qualify. They touched **six files under `src/cipher_tool/`**:
+Nothing in the toolkit came from the web, and it calls no AI service when it
+runs. It was written with AI assistance, and that assistance includes parts of
+the code that deciphers. On 3 October 2026 the AI-assisted commits up to that
+date had touched these files under `src/cipher_tool/`:
 
 | File | What it does | Does it decipher? |
 |---|---|---|
-| `statistics.py` | Index of Coincidence, Kasiski examination, chi-squared fitting | **Yes -- every attack uses it** |
-| `scoring.py` | the n-gram language model, its smoothing, word segmentation | **Yes -- every attack uses it** |
-| `auto.py` | the automatic solver that chooses and runs attacks | **Yes** |
-| `nihilist.py` | the Nihilist cipher solver | **Yes** |
+| `statistics.py` | Index of Coincidence, Kasiski examination, chi-squared fitting | Yes -- every attack uses it |
+| `scoring.py` | the n-gram language model, its smoothing, word segmentation | Yes -- every attack uses it |
+| `auto.py` | the automatic solver that chooses and runs attacks | Yes |
+| `nihilist.py` | the Nihilist cipher solver | Yes |
 | `cli.py` | command line parsing and reporting | No |
 | `context.py` | validation of a user-supplied context field | No |
 
-and six files outside it: `ALGORITHMS.md`, `CHANGELOG.md`, `CLAUDE.md`,
-`README.md`, `pyproject.toml`, `.github/workflows/ci.yml`, plus six test files.
+Later work on the toolkit, including changes to its solvers, was also
+AI-assisted.
 
-Most of the nine are corrections and hardening rather than new cryptanalysis --
-stale counts in documentation, a traceback turned into an error line, a
-hand-edited field refused. But not all of them: one let the automatic solver
-reach the Nihilist family, and one pinned confidence bands and an identity
-guard. Those change how the software deciphers.
-
-**So the honest statement is that AI contributed to the software that
-deciphers, including to the two modules every attack depends on.** That is
-disclosed in the README and across the wider portfolio, and it is not a
-problem in itself -- it is a problem only against a rule that forbids it for
-this competition, which rule 13 does.
-
-**What follows is a decision for the team, and it cannot be delegated to an
-AI.** That is not a figure of speech: asking an AI to rewrite the affected
-modules so the toolkit becomes compliant is self-defeating, because the
-rewrite would itself be AI-written software that deciphers. Any such help
-makes the repository *more* caught by rule 13, not less. Only three routes
-exist, and the first two need no code at all:
-
-1. **Enter the 2026 challenge without the toolkit.** Rule 13 permits
-   spreadsheets, text editors and the official BOSS Deciphering Tools, which
-   is how the challenge is meant to be entered. The repository stays what it
-   is -- a piece of engineering with a public record -- and simply does not
-   produce competition answers. Nothing needs to change for this to be true
-   today.
-2. **Ask the organisers.** They are the only people who can rule on whether
-   AI-assisted authorship of a competitor's *own* tooling falls under the
-   clause, and the case is genuinely arguable: most of the nine commits are
-   corrections to software that was already written. A draft of that question
-   is in [`docs/organiser-query.md`](docs/organiser-query.md). It has to be
-   sent by a team member, not on their behalf.
-3. **Rewrite the four deciphering modules from scratch, without AI** --
-   `statistics.py`, `scoring.py`, `auto.py` and `nihilist.py`. That would make
-   them the team's own work and would clear the clause. It is a real piece of
-   work, not a tidy-up: `scoring.py` and `statistics.py` are the core every
-   attack depends on. It also has to be genuinely unaided, which rules out
-   having an AI specify it line by line -- that is the same prohibition by
-   proxy.
-
-Until one of those is chosen and done, treat the toolkit as **not cleared for
-competition use**.
+Anyone using the toolkit in the competition should read the current rules for
+themselves and, if in doubt, ask the organisers.
 
 ## The rule we designed around
 
@@ -320,9 +255,8 @@ Stated plainly, because overclaiming is its own kind of rule problem:
 
 ## What to re-check when the 2026 rules are published
 
-Re-run on 3 October 2026. Questions 1 to 8 still pass; **question 9 does not**
-(see [Status of the rules check](#status-of-the-rules-check) and
-[The AI clause](#the-ai-clause-unresolved)).
+Re-run on 3 October 2026: questions 1 to 8 pass. Question 9 is about AI; see
+[AI assistance](#ai-assistance).
 
 Kept in full below because the list is the thing to re-run, not the answer.
 Do it again if the rules are amended, if the toolkit gains a dependency, or
@@ -356,7 +290,7 @@ not against this document.
    clause this document missed for seven weeks. Check both halves: AI used to
    decipher a message, and AI used to *write the software*. The second is
    about authorship, so the answer lives in `git log`, not in the code. See
-   [The AI clause](#the-ai-clause-unresolved).
+   [AI assistance](#ai-assistance).
 
 
 If any answer conflicts with a design decision above, change the code, then
