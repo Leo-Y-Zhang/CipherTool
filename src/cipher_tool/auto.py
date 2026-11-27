@@ -40,7 +40,7 @@ out, and the rest are reported as skipped.
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Sequence
 
 from . import (
@@ -54,6 +54,7 @@ from . import (
     columnar,
     crossed,
     encodings,
+    fixed_codes,
     foursquare,
     hill,
     homophonic,
@@ -65,6 +66,7 @@ from . import (
     polybius,
     rail_fence,
     seriated,
+    shuffled_units,
     stacked,
     substitution,
     transposition,
@@ -431,6 +433,13 @@ def build_stages(effort: str, top: int, seed: int | None) -> list[Stage]:
               {"top": top, "max_key_length": max_key_length}),
         Stage("autokey", "polyalphabetic", "normal", 5.0, autokey.solve,
               {"top": top, "max_primer": max_primer, "seed": seed}),
+        # Primers of 9 to 20 letters (2024 10A used 11). Only the two best
+        # lengths are climbed, and the family is its own, so it runs after the
+        # main families rather than taking their time.
+        Stage("autokey (long primers)", "autokey-long", "deep", 3.0,
+              autokey.solve,
+              {"top": top, "min_primer": 9, "max_primer": 20,
+               "climb_top": 2, "restarts": 0, "seed": seed}),
         Stage("route/grid transposition", "transposition", "normal", 3.0,
               transposition.solve_all,
               {"top": top, "max_key_length": columnar_max, "seed": seed}),
@@ -574,7 +583,20 @@ def order_stages(stages: Sequence[Stage], stats: TextStatistics) -> list[Stage]:
         # Within a priority band, cheap stages still go first.
         return (priority, stage.weight)
 
-    return sorted(stages, key=rank)
+    ordered = sorted(stages, key=rank)
+    # Even length, no J and no doubled pair is Playfair's own signature. Its
+    # climb needs about half a minute on a competition-length text, which an
+    # ordinary share of a deep budget does not give it (2025 9B). It stops as
+    # soon as it is strong, so the extra share costs little when it is wrong.
+    if any(h.family == "Playfair" and h.confidence == "possible"
+           for h in stats.hypotheses):
+        for index, stage in enumerate(ordered):
+            if stage.name == "Playfair":
+                others = sum(s.weight for s in ordered) - stage.weight
+                boosted = replace(stage, weight=max(stage.weight, others / 2))
+                ordered = [boosted] + ordered[:index] + ordered[index + 1:]
+                break
+    return ordered
 
 
 # ---------------------------------------------------------------------------
@@ -632,10 +654,56 @@ def auto_solve(
         time_budget=max_time,
     )
 
+    spent = 0.0
+    if fixed_codes.readings(normalized):
+        # Checked before Trifid: a code of six marks read in threes looks
+        # like a ternary stream (2024 9B went there and failed).
+        started = time.monotonic()
+        found = fixed_codes.solve(
+            normalized, scorer=engine, top=top, seed=seed,
+            time_budget=max_time / 2 if max_time is not None else 60.0)
+        ranked = found.ranked()[:top]
+        result.candidates.extend(ranked)
+        best = result.candidates.best()
+        spent = time.monotonic() - started
+        result.stages.append(StageReport(
+            "Fixed-length code", "substitution", ran=True,
+            seconds=spent, candidates=len(ranked),
+            best_score=best.score if best else None,
+            best_confidence=best.confidence() if best else None,
+            note="equal-length mark codes read as letters",
+        ))
+        if best is not None and best.confidence() == "strong":
+            return result
+
+    shuffle = shuffled_units.detect(normalized)
+    if shuffle is not None:
+        # Units of three marks shuffled in fixed blocks also pass for a
+        # ternary stream (2024 10B), so this too goes before Trifid.
+        started = time.monotonic()
+        found = shuffled_units.solve(
+            normalized, scorer=engine, top=top, seed=seed,
+            time_budget=max_time / 2 if max_time is not None else 60.0)
+        ranked = found.ranked()[:top]
+        result.candidates.extend(ranked)
+        best = result.candidates.best()
+        took = time.monotonic() - started
+        spent += took
+        result.stages.append(StageReport(
+            "Shuffled mark code", "substitution", ran=True,
+            seconds=took, candidates=len(ranked),
+            best_score=best.score if best else None,
+            best_confidence=best.confidence() if best else None,
+            note=f"blocks of {shuffle.period} marks, {len(shuffle.groups)} units each",
+        ))
+        if best is not None and best.confidence() == "strong":
+            return result
+
     if trifid.recognise(normalized):
         started = time.monotonic()
         found = trifid.solve(normalized, scorer=engine, top=top, seed=seed,
-                             time_budget=max_time if max_time is not None else 60.0)
+                             time_budget=(max(max_time - spent, 10.0)
+                                          if max_time is not None else 60.0))
         ranked = found.ranked()[:top]
         result.candidates.extend(ranked)
         best = result.candidates.best()
