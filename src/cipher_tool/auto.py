@@ -415,7 +415,9 @@ def build_stages(effort: str, top: int, seed: int | None) -> list[Stage]:
         # twelve restarts at `deep` would be minutes buying nothing, and a
         # stage that runs long without being able to reach anything new reads
         # as coverage without being it.
-        Stage("crossed-coordinate digraph", "digraphic", "fast", 6.0,
+        # Weight 12, not 6: two restarts take about 17 s on 2025 10B and a
+        # share of 10 s cut slow ones off. Other texts are refused at once.
+        Stage("crossed-coordinate digraph", "digraphic", "fast", 12.0,
               crossed.solve, {"top": top, "restarts": min(scale + 1, 2),
                               "seed": seed},
               reads="symbols"),
@@ -702,7 +704,7 @@ def auto_solve(
     if trifid.recognise(normalized):
         started = time.monotonic()
         found = trifid.solve(normalized, scorer=engine, top=top, seed=seed,
-                             time_budget=(max(max_time - spent, 10.0)
+                             time_budget=(max(max_time - spent, 0.05)
                                           if max_time is not None else 60.0))
         ranked = found.ranked()[:top]
         result.candidates.extend(ranked)

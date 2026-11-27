@@ -39,6 +39,7 @@ class Reading:
 
     @property
     def codes(self) -> int:
+        """How many different codes this cut produces."""
         return len(set(self.tokens))
 
     def as_letters(self) -> tuple[str, dict[str, str]]:
@@ -63,7 +64,9 @@ def _roughness(tokens: list[str]) -> float:
 def readings(source: str | NormalizedText) -> list[Reading]:
     """Every plausible cut of the stream into equal codes, best first."""
     stream = _stream(source)
-    if not 2 <= len(set(stream)) <= 6:
+    # Digit streams belong to the Polybius and Nihilist routes, which also
+    # report a dropped or odd digit; this one would hide that.
+    if stream.isdigit() or not 2 <= len(set(stream)) <= 6:
         return []
     found = []
     for size in SIZES:
