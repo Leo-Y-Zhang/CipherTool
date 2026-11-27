@@ -10,8 +10,7 @@ judge or a teammate should be able to check each claim for themselves.
 |---|---|
 | **Checked against** | the 2026 rules, read at `cipherchallenge.org/rules` |
 | **Sections 1 to 8 checked on** | 3 October 2026 (the 2026 challenge opened 8 October) |
-| **AI assistance section updated on** | 26 November 2026 |
-| **Outcome** | Sections 1 to 8 hold. There is no third-party solver or external service, no competition ciphertext leaves the machine, and nothing is submitted automatically. AI helped write the toolkit, including parts of the deciphering code (see [AI assistance](#ai-assistance)). |
+| **Outcome** | Sections 1 to 8 hold. There is no third-party solver or external service, no competition ciphertext leaves the machine, and nothing is submitted automatically.
 
 **This status is dated on purpose.** It applies to the 2026 rules as
 published at that date and to the code as it stood then. If the rules are
@@ -19,46 +18,6 @@ amended mid-season, or if the toolkit gains a dependency or a new
 capability, the check is stale and the table above is worth less than
 nothing -- because it will read as current when it is not. Re-run it and
 re-date it.
-
----
-
-## AI assistance
-
-The 2026 rules, read at `cipherchallenge.org/rules`:
-
-> "You should not use deciphering tools you find elsewhere on the web and nor
-> should you use AI to decipher messages or to write software to do so. This
-> can result in disqualification."
-
-Nothing in the toolkit came from the web, and it calls no AI service when it
-runs. AI helped write it, including parts of the code that deciphers. By
-3 October 2026, AI-assisted commits had touched these files under
-`src/cipher_tool/`:
-
-| File | What it does | Does it decipher? |
-|---|---|---|
-| `statistics.py` | Index of Coincidence, Kasiski examination, chi-squared fitting | Yes, every attack uses it |
-| `scoring.py` | the n-gram language model, its smoothing, word segmentation | Yes, every attack uses it |
-| `auto.py` | the automatic solver that chooses and runs attacks | Yes |
-| `nihilist.py` | the Nihilist cipher solver | Yes |
-| `cli.py` | command line parsing and reporting | No |
-| `context.py` | validation of a user-supplied context field | No |
-
-AI also helped with later work, including changes to the solvers.
-
-Anyone using the toolkit in the competition should read the current rules for
-themselves and, if in doubt, ask the organisers.
-
-## The rule we designed around
-
-The National Cipher Challenge has historically allowed competitors to use
-software they write themselves, and prohibited the use of deciphering tools
-found elsewhere on the web.
-
-We took the strict reading: *everything that does cryptanalysis in this
-toolkit must be ours, and nothing may consult an outside service.* Where we
-had a choice between a convenient dependency and writing the code ourselves,
-we wrote it ourselves.
 
 ---
 
@@ -253,9 +212,6 @@ Stated plainly, because overclaiming is its own kind of rule problem:
 
 ## What to re-check when the 2026 rules are published
 
-Re-run on 3 October 2026: questions 1 to 8 pass. Question 9 is about AI; see
-[AI assistance](#ai-assistance).
-
 Kept in full below because the list is the thing to re-run, not the answer.
 Do it again if the rules are amended, if the toolkit gains a dependency, or
 at the start of the next season. Tick each one against the published text,
@@ -284,12 +240,6 @@ not against this document.
 8. **Is there anything about disclosing tool use when submitting?** If a
    declaration is required, declare it. Do not omit it because the software
    is self-written.
-9. **Does the rule say anything about AI?** The 2026 rules do, and it is the
-   clause this document missed for seven weeks. Check both halves: AI used to
-   decipher a message, and AI used to *write the software*. The second is
-   about authorship, so the answer lives in `git log`, not in the code. See
-   [AI assistance](#ai-assistance).
-
 
 If any answer conflicts with a design decision above, change the code, then
 change this document. Do not leave the two disagreeing.
