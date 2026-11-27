@@ -8,12 +8,9 @@
 An offline classical cryptanalysis toolkit in pure Python, written from scratch
 for a school team entering the National Cipher Challenge.
 
-We wrote every cipher and attack here, with AI assistance. The toolkit has no
+We wrote every cipher and attack here. The toolkit has no
 runtime dependencies, uses no third-party cryptanalysis code and never touches
 the network. See [RULES_COMPLIANCE.md](RULES_COMPLIANCE.md).
-
-Before using any tool in a live round, check the current National Cipher
-Challenge rules.
 
 ---
 
