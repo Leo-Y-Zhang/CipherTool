@@ -2995,7 +2995,75 @@ One thing to know about the command line: `cipher_tool encodings` calls
 `identify` and `describe_guesses`, **not** `solve`. It prints the evidence
 lines and the not-encryption note; it does not rank the decodes by English.
 
-# Part 7: Cribs
+## Fixed-length mark codes (`fixed_codes.py`)
+
+Some ciphertexts are not letters at all but a few marks, and each letter is
+written as the same number of them. Baconian uses five A/B marks; 2024 9B used
+six of `|` `/` `\`. Once the stream is cut at the right length and the right
+starting mark, each code stands for one letter and what is left is an ordinary
+monoalphabetic substitution.
+
+### Finding the cut
+
+Every length from 2 to 8 and every offset within it is tried. A cut is kept
+when two things hold:
+
+- it gives between 18 and 26 different codes, about as many letters as a
+  message of a few hundred letters uses, and
+- the codes are uneven the way letters are. The test is the index of
+  coincidence times the number of codes: 1.0 for uniform noise, about 1.7 for
+  English. Below 1.4 the cut is rejected.
+
+Halves or thirds of a real code can pass both tests, so the longest passing cut
+wins. Two real codes joined never pass, because pairs of letters give hundreds
+of different tokens.
+
+### Solving
+
+The codes are relabelled as letters, most frequent first, and handed to the
+substitution solver. The key printed is the code book: each code and its
+letter.
+
+### Limitations
+
+Digit streams are left to the Polybius and Nihilist routes, which also report
+a dropped or odd digit. A code whose length varies from letter to letter (Morse)
+is not a fixed-length code and is not found here.
+
+## Shuffled mark codes (`shuffled_units.py`)
+
+2024 10B wrote each letter as two units of three marks, every unit holding each
+of `|` `/` `\` once, and then applied one shuffle to every block of 21 marks.
+The shuffle hides the units, so neither the fixed-length reading nor Trifid
+gets anywhere.
+
+### Step 1: the period and the units
+
+Two marks that began in the same unit are never equal. At the right period,
+each position in the block therefore has exactly two partners it differs from
+in (nearly) every block, and no others. Periods from 6 to 120 are tested,
+position 0 first as a cheap screen. When every position has two such partners
+and they form trios, the trios are the units.
+
+### Step 2: the order of the units
+
+A letter is two adjacent units. A pair of units that really makes a letter only
+shows about 25 of the 36 possible combinations (25 letters), whatever order the
+marks inside each unit are read in. A pair that straddles two letters shows
+nearly all 36. Every order of the units is scored by adding up the combinations
+on the pairs it says are letters. Because a block of 21 marks holds three and a
+half letters, alternate blocks start halfway through a letter, and the scoring
+takes that into account. With 7 units there are only 5,040 orders.
+
+### Step 3: reading each unit
+
+Each unit can be read in 6 orders. With the units in place, a climb chooses the
+reading for each unit that leaves the fewest different letter codes, so that a
+single code book covers every letter. What is left is a substitution.
+
+### Limitations
+
+Only units of three marks, two units to a letter, and at most 8 units per block.
 
 ## What a crib test does and does not claim (`cribs.py`)
 

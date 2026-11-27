@@ -191,7 +191,7 @@ cipher_tool analyse message.txt
 python run_tests.py
 ```
 
-You should see 1,616 tests pass, plus roughly 3,000 subtests.
+You should see 1,641 tests pass, plus roughly 3,000 subtests.
 Budget half an hour on a laptop: measured at 33 minutes 19 seconds on a
 machine that was busy with something else at the time, and 27 minutes 34
 seconds earlier the same evening. Nearly all of it is the randomised
@@ -419,6 +419,10 @@ each corner, and diagonal reads.
 dropped, 6x6 alphanumeric, arbitrary labels including ADFGX), Bifid with
 period, **Trifid** (keyed 3x3x3 cubes, letter ciphertext or raw
 three-symbol streams, with period and cube recovery by simulated annealing),
+**fixed-length mark codes** (every letter written as the same number of
+marks, such as six of `|` `/` `\`, cut at the right length and read as a
+substitution), **shuffled mark codes** (three-mark units shuffled in fixed
+blocks, found from the marks that never repeat inside a unit),
 **four-square** (two keyed 5x5 ciphertext squares, I/J merged, with
 a ciphertext-only simulated annealing attack), Playfair (including the variant whose same-column pairs move along the row rather than down the column -- two thirds of a message reads the same either way, so the wrong rule produces fluent, wrong English that no amount of extra search would fix), Hill 2x2 and 3x3, **ADFGVX and ADFGX** (fractionation
 through a keyed square followed by a columnar transposition -- the attack

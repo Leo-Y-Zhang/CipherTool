@@ -14,6 +14,31 @@ Add entries here as you work. Suggested headings: `Added`, `Changed`,
 
 ### Added
 
+- **`fixed_codes.py` -- letters written as equal-length mark codes.** 2024
+  9B wrote each letter as six of `|` `/` `\`. Read in threes it looked like
+  a Trifid stream and went there. Every cut from 2 to 8 marks at every offset
+  is tried; a cut is kept when it gives 18 to 26 codes with letter-like
+  frequencies, and the longest such cut wins (halves of a real code pass too).
+  Runs before Trifid. 2024 9B: strong, letter perfect, 14 s.
+- **`shuffled_units.py` -- a mark code shuffled in fixed blocks.** 2024 10B
+  wrote each letter as two units of three marks, each unit holding every mark
+  once, then shuffled every block of 21 marks the same way. Marks from one
+  unit are never equal, so at the right period each position has exactly two
+  partners it always differs from: those trios are the units. The order of the
+  units is found from how few unit pairs a real letter shows, the reading of
+  each unit by a climb to the fewest letter codes, and the rest is a
+  substitution. 2024 10B: strong, letter perfect, 11 s.
+- **`autokey (long primers)` stage at deep effort.** Primers of 9 to 20
+  letters, climbing only the two best lengths. 2024 10A used CATACLYSMIC (11).
+
+### Changed
+
+- **Playfair runs first, with a third of the weight, when the text has its
+  signature** (even length, no J, no doubled pair). 2025 9B was a Playfair
+  that the solver cracks in half a minute alone but got 18 s in the pipeline.
+- **crossed-coordinate digraph weight 6 to 12.** Two restarts take about 17 s
+  on 2025 10B; a 10 s share cut slow ones off. Other texts are refused at once.
+
 - **`readable.py` -- every solved plaintext now prints a second time, spaced
   into words and in sentence case.** A decryption came back as
   `TIMBE RANDB RUSHW OODSO MEFOU RHUND` and stayed that way through every
